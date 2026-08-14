@@ -1,7 +1,9 @@
 import io
 import os
 import re
+import json
 import traceback
+import requests
 import pandas as pd
 import streamlit as st
 import openpyxl
@@ -12,7 +14,7 @@ from openpyxl.utils import get_column_letter
 # 페이지 기본 설정 & CSS 커스텀 스타일링
 # ==============================================================================
 st.set_page_config(
-    page_title="학교생활기록부 데이터 정제 & 오탈자 정밀 검증 시스템",
+    page_title="학교생활기록부 AI(LLM) 오탈자 정밀 검증 시스템",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -85,210 +87,169 @@ st.markdown("""
         color: #64748B;
         font-weight: 500;
     }
-    .badge-required {
-        background-color: #EF4444;
-        color: white;
-        padding: 0.15rem 0.5rem;
-        border-radius: 4px;
-        font-weight: 700;
-        font-size: 0.8rem;
-    }
-    .badge-recommended {
-        background-color: #F59E0B;
-        color: white;
-        padding: 0.15rem 0.5rem;
-        border-radius: 4px;
-        font-weight: 700;
-        font-size: 0.8rem;
-    }
     </style>
 """, unsafe_allow_html=True)
 
 
 # ==============================================================================
-# 1. 지침 MD 파일 동적 파서 & 지침 규칙 로더
+# 1. 지침 MD 파일 동적 로더
 # ==============================================================================
 @st.cache_data
-def load_guideline_rules(md_file_path: str = "data/학교생활기록부_기재_및_검증_지침.md") -> dict:
+def load_guideline_content(md_file_path: str = "data/학교생활기록부_기재_및_검증_지침.md") -> str:
     """
-    data/학교생활기록부_기재_및_검증_지침.md 파일에서 
-    입력불가 용어 및 대체어 매핑표, 금지어 키워드, 학생입장 어미를 동적으로 파싱합니다.
+    data/학교생활기록부_기재_및_검증_지침.md 지침 파일 전문을 읽어옵니다.
     """
-    mapping_dict = {}
-    forbidden_keywords = [
-        "수상", "대회", "공모전", "논문", "소논문", "탐구 보고서", "연구 보고서", "자격증", 
-        "방과후학교", "모의고사", "어학시험", "특정대학", "시청", "박물관", "상호", "강사명", 
-        "교사명", "학교이름", "학교별칭", "축제이름", "해외활동", "외국어", "K-MOOC", "MOOC", 
-        "KOCW", "TED", "가정환경", "장학금"
-    ]
-    student_endings = ["파악함", "이해함", "깨달음", "다짐함", "느낌", "배움", "알게 됨", "생각해 봄", "생각함"]
-
     if os.path.exists(md_file_path):
         try:
             with open(md_file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            # 마크다운 표 영역 파싱 (| 입력불가 용어 | 올바른 대체어 |)
-            table_lines = re.findall(r'\| ([^\|]+) \| ([^\|]+) \|', content)
-            for raw, replacement in table_lines:
-                raw_clean = raw.strip()
-                rep_clean = replacement.strip()
-                if raw_clean and rep_clean and "입력불가" not in raw_clean and "---" not in raw_clean:
-                    # 다중 용어 콤마 분리 (예: 네이버, 구글, 다음)
-                    for item in raw_clean.split(','):
-                        item_s = item.strip()
-                        if item_s:
-                            mapping_dict[item_s] = rep_clean
+                return f.read()
         except Exception as e:
-            st.warning(f"⚠️ 지침 md 파일 파싱 중 경고: {e}")
-
-    # 기본 필수 입력불가 용어 매핑 보장 (fallback)
-    default_mappings = {
-        "네이버": "포털 사이트", "구글": "포털 사이트", "다음": "포털 사이트",
-        "네이버 밴드": "교육 플랫폼", "구글클래스룸": "교육 플랫폼", "클래스팅": "학습 플랫폼",
-        "유튜브": "동영상 공유 서비스", "유튜버": "동영상 크리에이터", "카카오톡": "SNS 메신저",
-        "인스타그램": "소셜 미디어", "페이스북": "소셜 미디어", "틱톡": "엔터테인먼트 플랫폼",
-        "아이폰": "스마트폰", "아이패드": "태블릿PC", "갤럭시탭": "태블릿PC", "크롬북": "휴대용 컴퓨터",
-        "KTX": "(초)고속열차", "SRT": "(초)고속열차", "MBTI": "성격유형 검사", "챗GPT": "대화형 인공지능",
-        "ZOOM": "화상 회의", "파이썬": "프로그래밍 언어", "HTML": "웹페이지 제작 언어", "CSS": "스타일 시트 언어",
-        "미리캔버스": "디자인 제작 플랫폼", "망고보드": "온라인 디자인 도구", "패들렛": "온라인 협업 플랫폼"
-    }
-    for k, v in default_mappings.items():
-        if k not in mapping_dict:
-            mapping_dict[k] = v
-
-    return {
-        "mappings": mapping_dict,
-        "forbidden_keywords": forbidden_keywords,
-        "student_endings": student_endings
-    }
+            st.warning(f"⚠️ 지침 md 파일 로드 경고: {e}")
+    return ""
 
 
 # ==============================================================================
-# 2. 오탈자 & 맞춤법·문법 & 지침 위반 정밀 검증 엔진
+# 2. LLM AI 분석 엔진 (Gemini / OpenAI / Claude API 파이프라인)
 # ==============================================================================
-def inspect_student_record_text(text: str, rules: dict) -> list:
+def clean_json_response(raw_text: str) -> str:
     """
-    단일 서술문 텍스트에 대하여 
-    1) 자주 틀리는 오탈자 및 한국어 문법 오류
-    2) 불필요 특수문자
-    3) 입력 불가 용어 (대체어 제공)
-    4) 생기부 기재 금지 키워드
-    5) 학생 입장 서술어 지양 어미
-    를 정밀 검증하여 발견된 오류 항목 리스트를 반환합니다.
+    AI 응답에서 마크다운 코드블록(```json ... ```)을 정제합니다.
     """
-    findings = []
-    if not text or pd.isna(text):
-        return findings
+    if not raw_text:
+        return ""
+    clean = raw_text.strip()
+    if clean.startswith("```"):
+        clean = re.sub(r'^```[a-zA-Z]*\n?', '', clean)
+        clean = re.sub(r'```$', '', clean)
+        clean = clean.strip()
+    return clean
 
-    text_str = str(text)
 
-    # --------------------------------------------------------------------------
-    # Rule 1. 자주 틀리는 한글 오탈자 & 맞춤법·어휘 문법 오류 DB
-    # --------------------------------------------------------------------------
-    typo_database = [
-        (r'\b도우는\b', '돕는', '오탈자/문법 오류 (\'돕다\'의 관형사형 어미는 \'돕는\'이 올바름)', '수정 필수'),
-        (r'\b만듬\b', '만듦', '맞춤법 오류 (명사형 어미 표기는 \'만듦\'이 올바름)', '수정 필수'),
-        (r'\b이끔\b', '이끎', '맞춤법 오류 (명사형 어미 표기는 \'이끎\'이 올바름)', '수정 필수'),
-        (r'\b치뤄\b', '치러', '어휘 활용 오탈자 (\'치르다\'의 어미 활용은 \'치러\'가 올바름)', '수정 필수'),
-        (r'\b치뤘\b', '치렀', '어휘 활용 오탈자 (\'치르다\'의 과거형은 \'치렀\'이 올바름)', '수정 필수'),
-        (r'\b되서\b', '돼서', '맞춤법 오류 (\'되어\'의 줄임말은 \'돼서\'가 올바름)', '수정 필수'),
-        (r'\b안되\b', '안 돼', '띄어쓰기/맞춤법 오류 (\'안 돼\' 또는 \'안 됨\'으로 수정)', '수정 필수'),
-        (r'\b몇일\b', '며칠', '맞춤법 오류 (\'며칠\'이 올바른 표준어 표기임)', '수정 필수'),
-        (r'\b오랫만에\b', '오랜만에', '맞춤법 오류 (\'오랜만에\'가 올바른 표기임)', '수정 필수'),
-        (r'\b띔\b', '띰', '맞춤법 오류 (\'눈에 띰\'으로 표기)', '수정 필수'),
-        (r'\b설레임\b', '설렘', '명사형 표기 오류 (\'설렘\'이 올바른 표기임)', '수정 권장'),
-        (r'\b삼가하다\b', '삼가다', '어휘 오류 (\'삼가다\'가 올바른 기본형임)', '수정 권장'),
-        (r'\b어의없\b', '어처구니없', '어휘 오탈자 (\'어이없다/어처구니없다\'가 올바름)', '수정 필수'),
-        (r'\b밞아\b', '밟아', '받침 오탈자 (\'밟아\'가 올바른 표기임)', '수정 필수'),
-        (r'\b따라함\b', '따라 함', '띄어쓰기 오류 (\'따라 함\'으로 띄어 씀)', '수정 권장'),
-        (r'\b가르키\b', '가리키', '어휘 오류 (\'가리키다\'와 \'가르치다\'의 구별 필요)', '수정 권장'),
-        (r'\.\.', '.', '문장부호 중복 오류 (마침표가 연속 중복됨)', '수정 권장'),
-        (r'\,{2,}', ',', '문장부호 중복 오류 (쉼표가 연속 중복됨)', '수정 권장'),
-        (r'\s{2,}', ' ', '다중 공백 오류 (연속된 공백이 포함됨)', '수정 권장'),
-    ]
+def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records_data: list, guideline_text: str) -> list:
+    """
+    D:\Cloud\git\ggomcode\ggomcheck의 LLM 백엔드호출 방식을 참고하여 
+    생기부 기록 데이터를 LLM AI(Gemini/OpenAI/Claude)에 전달하고 
+    오탈자, 맞춤법/문법 오류, 입력불가 용어, 금지어를 정밀 분석하여 JSON 구조로 수신합니다.
+    """
+    if not api_key:
+        raise ValueError("API Key가 설정되지 않았습니다. 사이드바에서 AI API Key를 입력해 주세요.")
 
-    for pattern, replacement, reason, category in typo_database:
-        for match in re.finditer(pattern, text_str):
-            findings.append({
-                "raw_text": match.group(0),
-                "suggested_text": replacement,
-                "reason": reason,
-                "category": category
-            })
+    prompt_instructions = f"""
+당신은 대한민국 고등학교 학교생활기록부(창체, 세특, 행특) 오탈자 및 기재지침 검증 최고 전문가 AI입니다.
 
-    # 조사 띄어쓰기 오류 검사 (예: "조사 를", "활동 을", "학생 은")
-    josa_typo_matches = re.finditer(r'([가-힣]{2,})\s+([을를이가은는에의로으로에서부터까지])\b', text_str)
-    for m in josa_typo_matches:
-        word, josa = m.group(1), m.group(2)
-        # 단어 뒤 조사는 붙여 쓰는 것이 원칙
-        findings.append({
-            "raw_text": m.group(0),
-            "suggested_text": f"{word}{josa}",
-            "reason": "조사 띄어쓰기 오류 (조사는 앞 단어에 붙여 써야 함)",
-            "category": "수정 필수"
-        })
+[참고 지침 문서]
+{guideline_text}
 
-    # --------------------------------------------------------------------------
-    # Rule 2. 특수문자 제한 검사
-    # 허용: 따옴표('"), 쉼표(,), 마침표(.), 느낌표(!), 물음표(?), 콜론(:), 세미콜론(;), 괄호(()[])
-    # --------------------------------------------------------------------------
-    forbidden_specials = re.finditer(r'([★◆▲■●★☆◇△□○~@#$%^&*+=<>/\\])', text_str)
-    for sm in forbidden_specials:
-        findings.append({
-            "raw_text": sm.group(0),
-            "suggested_text": "삭제 또는 문장 기호(점, 쉼표, 따옴표)로 변경",
-            "reason": f"특수문자 기재 불가 지침 위반 ('{sm.group(0)}' 기호 사용 금지)",
-            "category": "수정 필수"
-        })
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【검증 5대 핵심 지침】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. 오탈자, 맞춤법, 띄어쓰기 및 한국어 문법적 오류:
+   - 모든 문장의 철자, 띄어쓰기, 어미 활용(예: '도우는'->'돕는', '만듬'->'만듦', '되서'->'돼서', '안되'->'안 돼', '치뤄'->'치러' 등), 주어-서술어 호응 오탈자를 정밀 검출하십시오.
+2. 입력 불가 용어 및 브랜드/서비스명:
+   - 지침 2.3 매핑표의 용어(네이버, 구글, 유튜브, 카카오톡, KTX, MBTI, 챗GPT, ZOOM 등)가 발견되면 지정된 올바른 대체어로 교정 제안하십시오.
+3. 생기부 기재 금지어 및 금지 항목:
+   - 수상, 대회, 논문, 자격증, 방과후학교, 특정 대학/기관명, 상호, 교사명, 학교이름, 해외활동 등 금지 항목을 감지하십시오.
+4. 특수문자 제한 위반:
+   - 따옴표('"), 쉼표(,), 마침표(.), 느낌표(!), 물음표(?), 콜론(:), 괄호 외 불필요 특수기호(★, ◆, ~, @, #, $ 등)를 감지하십시오.
+5. 학생 입장 서술 지양 어미:
+   - ~파악함, ~이해함, ~다짐함, ~느낌, ~배움 등 학생 입장 어미를 감지하여 교사 관점 서술어(~활동지를 작성함, ~모습이 돋보임)로 전환 제안하십시오.
 
-    # --------------------------------------------------------------------------
-    # Rule 3. 입력 불가 용어 & 대체어 매핑 검사
-    # --------------------------------------------------------------------------
-    mappings = rules.get("mappings", {})
-    for forbidden_word, correct_word in mappings.items():
-        # 단어 완전/부분 매칭 정규식
-        pattern = re.compile(re.escape(forbidden_word), re.IGNORECASE)
-        for fm in pattern.finditer(text_str):
-            findings.append({
-                "raw_text": fm.group(0),
-                "suggested_text": correct_word,
-                "reason": f"입력 불가 용어 지침 위반 ('{fm.group(0)}' ➔ '{correct_word}' 대체어 사용)",
-                "category": "수정 필수"
-            })
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【출력 형식 (JSON Schema)】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+반드시 오직 아래의 JSON 데이터만 반환하십시오. 마크다운 추가 텍스트 없이 순수한 JSON만 반환해야 합니다:
+{{
+  "results": [
+    {{
+      "student_id": "학번 (5자리 숫자로 작성, 예: 10101)",
+      "student_name": "학생 이름",
+      "category": "구분 (창체 / 세특 / 행발 중 하나)",
+      "sub_category": "세부 (자율 / 동아리 / 진로 / 과목명 / 행동특성 중 하나)",
+      "original_text": "오류가 발견된 수정 전 단어/문구",
+      "suggested_text": "올바르게 교정된 수정 후 추천 문구",
+      "reason": "수정해야 하는 명확한 이유나 근거 (맞춤법 사유 및 지침 조항)",
+      "severity": "수정 필수 또는 수정 권장"
+    }}
+  ]
+}}
+"""
 
-    # --------------------------------------------------------------------------
-    # Rule 4. 생기부 기재 금지 키워드 검사
-    # --------------------------------------------------------------------------
-    forbidden_keywords = rules.get("forbidden_keywords", [])
-    for kw in forbidden_keywords:
-        # 이미 대체어 매핑에서 처리된 경우 중복 방지
-        if kw in mappings:
-            continue
-        pattern = re.compile(r'\b' + re.escape(kw) + r'\b')
-        for km in pattern.finditer(text_str):
-            findings.append({
-                "raw_text": km.group(0),
-                "suggested_text": "관련 항목 내용 삭제 또는 기재 가능 용어로 수정",
-                "reason": f"생기부 기재 금지어 위반 ('{km.group(0)}' 항목은 생기부 기재 불가)",
-                "category": "수정 필수"
-            })
+    data_payload_text = json.dumps(records_data, ensure_ascii=False, indent=2)
+    full_prompt = f"[학생별 생기부 기록 데이터]\n{data_payload_text}\n\n[검증 지시문]\n{prompt_instructions}"
 
-    # --------------------------------------------------------------------------
-    # Rule 5. 학생 입장 서술 지양 어미 검사
-    # --------------------------------------------------------------------------
-    student_endings = rules.get("student_endings", [])
-    for ending in student_endings:
-        pattern = re.compile(r'([가-힣]+' + re.escape(ending) + r'|\b' + re.escape(ending) + r')')
-        for em in pattern.finditer(text_str):
-            findings.append({
-                "raw_text": em.group(0),
-                "suggested_text": "~하는 관찰 기재 (예: ~활동지를 작성함, ~모습이 돋보임)",
-                "reason": f"학생 입장 서술어 지양 지침 위반 ('{em.group(0)}' ➔ 교사 관점 서술 권장)",
-                "category": "수정 권장"
-            })
+    raw_response_text = ""
 
-    return findings
+    # 1. Gemini API (Default / Recommended)
+    if provider.lower() == "gemini":
+        model = model_name if model_name else "gemini-2.0-flash"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": full_prompt}]}],
+            "generationConfig": {
+                "responseMimeType": "application/json"
+            }
+        }
+        res = requests.post(url, json=payload, timeout=60)
+        if res.status_code != 200:
+            raise RuntimeError(f"Gemini API 호출 실패 ({res.status_code}): {res.text}")
+        res_json = res.json()
+        raw_response_text = res_json['candidates'][0]['content']['parts'][0]['text']
+
+    # 2. OpenAI API
+    elif provider.lower() == "openai":
+        model = model_name if model_name else "gpt-4o-mini"
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": "You are a helpful assistant that outputs student record verification results in JSON schema."},
+                {"role": "user", "content": full_prompt}
+            ],
+            "response_format": {"type": "json_object"}
+        }
+        res = requests.post(url, headers=headers, json=payload, timeout=60)
+        if res.status_code != 200:
+            raise RuntimeError(f"OpenAI API 호출 실패 ({res.status_code}): {res.text}")
+        res_json = res.json()
+        raw_response_text = res_json['choices'][0]['message']['content']
+
+    # 3. Claude API
+    elif provider.lower() == "claude":
+        url = "https://api.anthropic.com/v1/messages"
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "claude-3-5-haiku-20241022",
+            "max_tokens": 4000,
+            "system": "Return strictly a JSON object with 'results' array as requested.",
+            "messages": [{"role": "user", "content": full_prompt}]
+        }
+        res = requests.post(url, headers=headers, json=payload, timeout=60)
+        if res.status_code != 200:
+            raise RuntimeError(f"Claude API 호출 실패 ({res.status_code}): {res.text}")
+        res_json = res.json()
+        raw_response_text = res_json['content'][0]['text']
+
+    else:
+        raise ValueError(f"지원하지 않는 API Provider입니다: {provider}")
+
+    # JSON 파싱
+    clean_json = clean_json_response(raw_response_text)
+    parsed = json.loads(clean_json)
+    
+    if isinstance(parsed, dict) and "results" in parsed:
+        return parsed["results"]
+    elif isinstance(parsed, list):
+        return parsed
+    else:
+        return []
 
 
 # ==============================================================================
@@ -402,7 +363,6 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             is_num_empty = pd.isna(num_val) or str(num_val).strip() == "" or str(num_val).strip().lower() == "nan"
             is_name_empty = pd.isna(name_val) or str(name_val).strip() == "" or str(name_val).strip().lower() == "nan"
 
-            # 누락 행 병합 처리
             if is_num_empty and is_name_empty:
                 if current_student_record is not None and content_val:
                     prev_content = current_student_record[content_col]
@@ -505,81 +465,50 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
 
 
 # ==============================================================================
-# 7. 검증 결과를 규격 표 형식(8개 컬럼)으로 변환하는 함수
+# 7. 생기부 레코드 리스트 패킹 헬퍼
 # ==============================================================================
-def generate_audit_report_table(data_store: dict, rules: dict) -> pd.DataFrame:
+def prepare_records_for_llm(data_store: dict) -> list:
     """
-    모든 데이터(창체, 세특, 행특)를 정밀 검수하여
-    [학번(5자리), 이름, 구분, 세부, 수정전, 수정 후, 수정해야하는 이유나 근거, 수정구분]
-    규격 표 형식으로 학번순 오름차순 정렬하여 반환합니다.
+    LLM API에 전달할 [학번, 이름, 구분, 세부, 기록 텍스트] 페이로드 리스트를 만듭니다.
     """
-    audit_rows = []
-
-    category_type_map = {
-        "창체": "창체",
-        "세특": "세특",
-        "행특": "행발"
-    }
+    records_payload = []
+    category_map = {"창체": "창체", "세특": "세특", "행특": "행발"}
 
     for t_key in ["창체", "세특", "행특"]:
         if t_key not in data_store or data_store[t_key] is None:
             continue
-
         item = data_store[t_key]
         df = item['df']
         c_map = item['col_map']
-
-        num_c = c_map['num_col']
-        name_c = c_map['name_col']
-        content_c = c_map['content_col']
+        num_c, name_c, content_c = c_map['num_col'], c_map['name_col'], c_map['content_col']
 
         for _, row in df.iterrows():
-            num_raw = row.get(num_c, '')
+            num_raw = str(row.get(num_c, ''))
             name_val = str(row.get(name_c, '')).strip()
-            
-            # 학번 5자리 포맷팅 (예: 1반 1번 -> 10101, 10반 3번 -> 11003)
-            num_str = re.sub(r'\D', '', str(num_raw))
-            if len(num_str) == 1 or len(num_str) == 2:
-                formatted_student_id = f"101{int(num_str):02d}"
-            elif len(num_str) == 3 or len(num_str) == 4:
-                formatted_student_id = f"{int(num_str):05d}"
-            else:
-                formatted_student_id = num_str.zfill(5) if num_str else "00000"
 
-            # 세부 항목 구분
+            num_str = re.sub(r'\D', '', num_raw)
+            if len(num_str) in [1, 2]:
+                student_id = f"101{int(num_str):02d}"
+            else:
+                student_id = num_str.zfill(5) if num_str else "00000"
+
             if t_key == "창체":
-                detail_sub = str(row.get('영역', row.get('활동영역', '자율/동아리/진로'))).strip()
+                sub_cat = str(row.get('영역', row.get('활동영역', '자율/동아리/진로'))).strip()
             elif t_key == "세특":
-                detail_sub = str(row.get('과목명', '과목미지정')).strip()
+                sub_cat = str(row.get('과목명', '과목미지정')).strip()
             else:
-                detail_sub = "행동특성"
+                sub_cat = "행동특성"
 
-            text_to_inspect = str(row.get('내용', row.get(content_c, '')))
-            
-            # 정밀 검증 수행
-            findings = inspect_student_record_text(text_to_inspect, rules)
-
-            for f in findings:
-                audit_rows.append({
-                    "학번": formatted_student_id,
+            text_content = str(row.get('내용', row.get(content_c, '')))
+            if text_content.strip():
+                records_payload.append({
+                    "학번": student_id,
                     "이름": name_val,
-                    "구분": category_type_map[t_key],
-                    "세부": detail_sub,
-                    "수정전": f["raw_text"],
-                    "수정 후": f["suggested_text"],
-                    "수정해야하는 이유나 근거": f["reason"],
-                    "수정구분": f["category"]
+                    "구분": category_map[t_key],
+                    "세부": sub_cat,
+                    "기록텍스트": text_content
                 })
-
-    if not audit_rows:
-        return pd.DataFrame(columns=[
-            "학번", "이름", "구분", "세부", "수정전", "수정 후", "수정해야하는 이유나 근거", "수정구분"
-        ])
-
-    result_df = pd.DataFrame(audit_rows)
-    # 학급/학번순 오름차순 정렬
-    result_df = result_df.sort_values(by=["학번", "이름"], ascending=True).reset_index(drop=True)
-    return result_df
+    return records_payload
 
 
 # ==============================================================================
@@ -589,7 +518,7 @@ def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
     output = io.BytesIO()
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "오탈자 및 지침 검증 리포트"
+    ws.title = "AI 오탈자 및 지침 검증 리포트"
 
     header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
     header_font = Font(name="맑은 고딕", size=10, bold=True, color="FFFFFF")
@@ -729,24 +658,40 @@ def main():
             'raw_data': {},
             'merge_logs': {}
         }
+    if 'llm_audit_results' not in st.session_state:
+        st.session_state['llm_audit_results'] = None
 
-    # 지침 md 규칙 동적 로드
-    rules = load_guideline_rules()
+    guideline_text = load_guideline_content()
 
     # --------------------------------------------------------------------------
     # 헤더 섹션
     # --------------------------------------------------------------------------
     st.markdown("""
         <div class="main-header">
-            <h1>🎓 학교생활기록부 오탈자 정밀 검증 & 데이터 정제 시스템</h1>
-            <p>생기부 기재 지침 준수 여부, 오탈자, 맞춤법/문법 오류를 빠짐없이 걸러내고 페이지 나눔 서술문을 완벽히 정제합니다.</p>
+            <h1>🎓 학교생활기록부 AI(LLM) 오탈자 정밀 검증 & 데이터 정제 시스템</h1>
+            <p>Gemini/OpenAI/Claude AI 모델을 활용하여 기재 지침 준수 여부, 오탈자, 맞춤법/문법 오류를 정밀 검출합니다.</p>
         </div>
     """, unsafe_allow_html=True)
 
     # --------------------------------------------------------------------------
-    # 사이드바: 파일 업로드 및 옵션
+    # 사이드바: AI API 설정 및 엑셀 파일 업로드
     # --------------------------------------------------------------------------
     with st.sidebar:
+        st.header("🤖 AI (LLM) API 설정")
+        
+        provider = st.selectbox("AI 모델 선택", ["Gemini", "OpenAI", "Claude"])
+        
+        default_api_key = os.getenv("GEMINI_API_KEY", "") if provider == "Gemini" else os.getenv("OPENAI_API_KEY", "")
+        api_key = st.text_input(
+            f"{provider} API Key 입력",
+            value=default_api_key,
+            type="password",
+            help="AI 정밀 오탈자 검증을 위해 API 키를 입력해 주세요."
+        )
+
+        model_name = "gemini-2.0-flash" if provider == "Gemini" else ("gpt-4o-mini" if provider == "OpenAI" else "claude-3-5-haiku-20241022")
+
+        st.markdown("---")
         st.header("📂 엑셀 파일 업로드")
         st.caption("창체, 세특, 행특 엑셀 파일을 선택하여 업로드하세요.")
 
@@ -761,15 +706,6 @@ def main():
             f"[{type_key}] 엑셀 파일 (.xlsx, .xls)",
             type=["xlsx", "xls"],
             key=f"file_{type_key}"
-        )
-
-        st.markdown("---")
-        st.markdown("🎯 **핵심 검증 항목**")
-        st.info(
-            "1. **오탈자·맞춤법 오류**: 도우는➔돕는, 만듬➔만듦, 되서➔돼서, 띄어쓰기 정밀 검사\n"
-            "2. **입력 불가 용어**: 네이버, 구글, 유튜브, 카카오톡, KTX, MBTI, 챗GPT 등 대체어 제안\n"
-            "3. **기재 금지어**: 수상, 대회, 논문, 자격증, 방과후학교, 특정 대학/기관명 감지\n"
-            "4. **서술 지향**: ~파악함, ~이해함 등 학생 입장 어미 감지"
         )
 
         if uploaded_file is not None:
@@ -793,7 +729,7 @@ def main():
                 }
                 st.session_state['data_store']['merge_logs'][type_key] = logs
 
-                st.sidebar.success(f"✅ {type_key} 정제 및 검증 완료! ({len(refined_df)}명 학생)")
+                st.sidebar.success(f"✅ {type_key} 데이터 준비 완료! ({len(refined_df)}명 학생)")
 
             except Exception as e:
                 st.sidebar.error(f"❌ 파일 처리 오류: {str(e)}")
@@ -804,7 +740,7 @@ def main():
     # 메인 콘텐츠 영역 (Tabs)
     # --------------------------------------------------------------------------
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🚨 오탈자 & 지침 정밀 검증", 
+        "🚨 AI(LLM) 오탈자 정밀 검증", 
         "🔍 학생별 통합 조회", 
         "🛠️ 페이지 나눔 정제 검증", 
         "📊 데이터 분석 & 통계", 
@@ -812,88 +748,115 @@ def main():
     ])
 
     # ==========================================================================
-    # Tab 1: 🚨 오탈자 & 지침 정밀 검증 (최우선 메인 탭)
+    # Tab 1: 🚨 AI(LLM) 오탈자 & 지침 정밀 검증 (최우선 메인 탭)
     # ==========================================================================
     with tab1:
-        st.subheader("🚨 생기부 오탈자·맞춤법 및 기재 지침 정밀 검증 리포트")
-        st.caption("기재 지침 문서(`학교생활기록부_기재_및_검증_지침.md`)를 바탕으로 오탈자, 맞춤법/문법 오류, 입력불가 용어, 금지어를 정밀 검출합니다.")
+        st.subheader("🚨 AI (LLM) 기반 생기부 오탈자·맞춤법 및 지침 정밀 검증 리포트")
+        st.caption("AI(Gemini/OpenAI/Claude)가 지침 문서(`학교생활기록부_기재_및_검증_지침.md`)의 원칙을 바탕으로 오탈자, 맞춤법/문법 오류, 입력불가 용어, 금지어를 정밀 검출합니다.")
 
         available_types = [k for k in ['창체', '세특', '행특'] if st.session_state['data_store'].get(k) is not None]
 
         if not available_types:
             st.warning("👈 먼저 사이드바에서 생기부 엑셀 파일을 업로드해 주세요.")
         else:
-            audit_df = generate_audit_report_table(st.session_state['data_store'], rules)
+            col_b1, col_b2 = st.columns([3, 1])
+            with col_b1:
+                st.info("💡 사이드바에 API Key를 입력한 후 아래 [AI 정밀 분석 실행] 버튼을 클릭하세요.")
+            with col_b2:
+                btn_run_llm = st.button("🚀 AI 정밀 분석 실행", type="primary", use_container_width=True)
 
-            # 요약 지표
-            req_cnt = len(audit_df[audit_df['수정구분'] == '수정 필수']) if not audit_df.empty else 0
-            rec_cnt = len(audit_df[audit_df['수정구분'] == '수정 권장']) if not audit_df.empty else 0
+            if btn_run_llm:
+                if not api_key:
+                    st.error("⚠️ AI API Key가 입력되지 않았습니다. 사이드바에서 API Key를 입력해 주세요.")
+                else:
+                    with st.spinner("🤖 AI가 학교생활기록부 전 문장의 오탈자 및 기재 지침을 분석하고 있습니다... (약 10~30초 소요)"):
+                        try:
+                            records_payload = prepare_records_for_llm(st.session_state['data_store'])
+                            raw_findings = call_llm_api_for_audit(provider, api_key, model_name, records_payload, guideline_text)
+                            
+                            # 데이터프레임 변환
+                            audit_rows = []
+                            for item in raw_findings:
+                                audit_rows.append({
+                                    "학번": item.get("student_id", "00000"),
+                                    "이름": item.get("student_name", ""),
+                                    "구분": item.get("category", "세특"),
+                                    "세부": item.get("sub_category", ""),
+                                    "수정전": item.get("original_text", ""),
+                                    "수정 후": item.get("suggested_text", ""),
+                                    "수정해야하는 이유나 근거": item.get("reason", ""),
+                                    "수정구분": item.get("severity", "수정 필수")
+                                })
 
-            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-            with col_m1:
-                st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="val" style="color:#DC2626;">{len(audit_df)}</div>
-                        <div class="lbl">총 검출 오류 건수</div>
-                    </div>
-                """, unsafe_allow_html=True)
-            with col_m2:
-                st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="val" style="color:#EF4444;">{req_cnt}</div>
-                        <div class="lbl">🚨 수정 필수 (지침 위반/오타)</div>
-                    </div>
-                """, unsafe_allow_html=True)
-            with col_m3:
-                st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="val" style="color:#F59E0B;">{rec_cnt}</div>
-                        <div class="lbl">⚠️ 수정 권장 (어미/문맥)</div>
-                    </div>
-                """, unsafe_allow_html=True)
-            with col_m4:
-                st.markdown(f"""
-                    <div class="metric-card">
-                        <div class="val" style="color:#10B981;">100%</div>
-                        <div class="lbl">지침 규칙 동적 반영율</div>
-                    </div>
-                """, unsafe_allow_html=True)
+                            if audit_rows:
+                                res_df = pd.DataFrame(audit_rows)
+                                res_df = res_df.sort_values(by=["학번", "이름"], ascending=True).reset_index(drop=True)
+                                st.session_state['llm_audit_results'] = res_df
+                            else:
+                                st.session_state['llm_audit_results'] = pd.DataFrame(columns=[
+                                    "학번", "이름", "구분", "세부", "수정전", "수정 후", "수정해야하는 이유나 근거", "수정구분"
+                                ])
 
-            st.markdown("---")
-            
-            if audit_df.empty:
-                st.balloons()
-                st.success("🎉 축하합니다! 검출된 오탈자나 기재 지침 위반 항목이 없습니다. (클린 생기부)")
+                            st.success("✅ AI 정밀 검사 완료!")
+
+                        except Exception as e:
+                            st.error(f"❌ AI 분석 중 오류가 발생했습니다: {str(e)}")
+                            with st.expander("상세 에러 내역"):
+                                st.code(traceback.format_exc())
+
+            # 분석 결과 출력
+            audit_df = st.session_state.get('llm_audit_results')
+
+            if audit_df is not None:
+                req_cnt = len(audit_df[audit_df['수정구분'] == '수정 필수']) if not audit_df.empty else 0
+                rec_cnt = len(audit_df[audit_df['수정구분'] == '수정 권장']) if not audit_df.empty else 0
+
+                col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                with col_m1:
+                    st.markdown(f'<div class="metric-card"><div class="val" style="color:#DC2626;">{len(audit_df)}</div><div class="lbl">총 검출 오류 건수</div></div>', unsafe_allow_html=True)
+                with col_m2:
+                    st.markdown(f'<div class="metric-card"><div class="val" style="color:#EF4444;">{req_cnt}</div><div class="lbl">🚨 수정 필수 (지침 위반/오타)</div></div>', unsafe_allow_html=True)
+                with col_m3:
+                    st.markdown(f'<div class="metric-card"><div class="val" style="color:#F59E0B;">{rec_cnt}</div><div class="lbl">⚠️ 수정 권장 (어미/문맥)</div></div>', unsafe_allow_html=True)
+                with col_m4:
+                    st.markdown(f'<div class="metric-card"><div class="val" style="color:#10B981;">{provider} AI</div><div class="lbl">사용된 분석 엔진</div></div>', unsafe_allow_html=True)
+
+                st.markdown("---")
+
+                if audit_df.empty:
+                    st.balloons()
+                    st.success("🎉 AI 검사 결과, 검출된 오탈자나 기재 지침 위반 항목이 없습니다.")
+                else:
+                    col_f1, col_f2 = st.columns([2, 3])
+                    with col_f1:
+                        filter_cat = st.selectbox("수정 구분 필터", ["전체 보기", "수정 필수만 보기", "수정 권장만 보기"])
+                    with col_f2:
+                        search_keyword = st.text_input("학생 이름/학번 검색", placeholder="예: 10101 또는 김철수")
+
+                    filtered_df = audit_df.copy()
+                    if filter_cat == "수정 필수만 보기":
+                        filtered_df = filtered_df[filtered_df["수정구분"] == "수정 필수"]
+                    elif filter_cat == "수정 권장만 보기":
+                        filtered_df = filtered_df[filtered_df["수정구분"] == "수정 권장"]
+
+                    if search_keyword.strip():
+                        kw = search_keyword.strip()
+                        filtered_df = filtered_df[
+                            filtered_df["학번"].astype(str).str.contains(kw) | filtered_df["이름"].astype(str).str.contains(kw)
+                        ]
+
+                    st.markdown("### 📋 AI 오탈자 및 검증 결과 표 (학번순 정렬)")
+                    st.dataframe(filtered_df, use_container_width=True, height=450)
+
+                    audit_excel_bytes = create_audit_report_excel_bytes(filtered_df)
+                    st.download_button(
+                        label="💾 AI 오탈자 & 지침 검증 리포트 엑셀 다운로드 (.xlsx)",
+                        data=audit_excel_bytes,
+                        file_name="생기부_AI_오탈자_및_지침검증_리포트.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
             else:
-                col_f1, col_f2 = st.columns([2, 3])
-                with col_f1:
-                    filter_cat = st.selectbox("수정 구분 필터", ["전체 보기", "수정 필수만 보기", "수정 권장만 보기"])
-                with col_f2:
-                    search_keyword = st.text_input("학생 이름/학번 검색", placeholder="예: 10101 또는 김철수")
-
-                filtered_df = audit_df.copy()
-                if filter_cat == "수정 필수만 보기":
-                    filtered_df = filtered_df[filtered_df["수정구분"] == "수정 필수"]
-                elif filter_cat == "수정 권장만 보기":
-                    filtered_df = filtered_df[filtered_df["수정구분"] == "수정 권장"]
-
-                if search_keyword.strip():
-                    kw = search_keyword.strip()
-                    filtered_df = filtered_df[
-                        filtered_df["학번"].str.contains(kw) | filtered_df["이름"].str.contains(kw)
-                    ]
-
-                st.markdown("### 📋 오탈자 및 검증 결과 표 (학번순 정렬)")
-                st.dataframe(filtered_df, use_container_width=True, height=450)
-
-                # 개별 리포트 엑셀 다운로드
-                audit_excel_bytes = create_audit_report_excel_bytes(filtered_df)
-                st.download_button(
-                    label="💾 오탈자 & 지침 검증 리포트 엑셀 다운로드 (.xlsx)",
-                    data=audit_excel_bytes,
-                    file_name="생기부_오탈자_및_지침검증_리포트.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                st.info("👆 [AI 정밀 분석 실행] 버튼을 눌러 AI 검증을 시작하세요.")
 
     # ==========================================================================
     # Tab 2: 학생별 통합 조회
@@ -1078,7 +1041,7 @@ def main():
     # ==========================================================================
     with tab5:
         st.subheader("📥 엑셀 파일 다운로드")
-        st.write("오탈자 검증 리포트 및 정제 완료 데이터를 엑셀 파일로 각각 다운로드할 수 있습니다.")
+        st.write("AI 오탈자 검증 리포트 및 정제 완료 데이터를 엑셀 파일로 각각 다운로드할 수 있습니다.")
 
         available_exports = {}
         for t_key in ["창체", "세특", "행특"]:
@@ -1086,21 +1049,24 @@ def main():
                 available_exports[t_key] = st.session_state['data_store'][t_key]['df']
 
         if available_exports:
-            audit_df = generate_audit_report_table(st.session_state['data_store'], rules)
+            audit_df = st.session_state.get('llm_audit_results')
             
             col_d1, col_d2 = st.columns(2)
             
             with col_d1:
-                st.markdown("### 🚨 오탈자 & 지침 검증 리포트")
-                st.write(f"총 {len(audit_df)}건의 검출 항목이 포함된 8개 컬럼 규격 엑셀 리포트입니다.")
-                audit_bytes = create_audit_report_excel_bytes(audit_df)
-                st.download_button(
-                    label="💾 오탈자 검증 리포트 다운로드 (.xlsx)",
-                    data=audit_bytes,
-                    file_name="생기부_오탈자_및_지침검증_리포트.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+                st.markdown("### 🚨 AI 오탈자 & 지침 검증 리포트")
+                if audit_df is not None:
+                    st.write(f"총 {len(audit_df)}건의 검출 항목이 포함된 8개 컬럼 규격 엑셀 리포트입니다.")
+                    audit_bytes = create_audit_report_excel_bytes(audit_df)
+                    st.download_button(
+                        label="💾 AI 오탈자 검증 리포트 다운로드 (.xlsx)",
+                        data=audit_bytes,
+                        file_name="생기부_AI_오탈자_및_지침검증_리포트.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                else:
+                    st.info("첫 번째 탭에서 [AI 정밀 분석 실행]을 먼저 진행해 주세요.")
 
             with col_d2:
                 st.markdown("### 📄 정제 완료 통합 생기부 데이터")
