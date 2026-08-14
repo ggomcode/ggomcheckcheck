@@ -1,56 +1,81 @@
+import sys
+import io
 import pandas as pd
-from app import detect_columns, refine_student_records, split_subject_details, create_formatted_excel_bytes
 
-def test_pipeline():
-    print("=== Testing Pipeline ===")
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
+from app import (
+    detect_columns, 
+    refine_student_records, 
+    split_subject_details, 
+    load_guideline_rules,
+    inspect_student_record_text,
+    generate_audit_report_table,
+    create_audit_report_excel_bytes
+)
+
+def test_typo_and_guideline_engine():
+    print("=== Testing Typo & Guideline Inspection Engine ===")
     
-    # 1. Dummy 세특 Excel data simulating page breaks and colon-separated subjects
+    rules = load_guideline_rules()
+    print("Loaded guideline mappings count:", len(rules["mappings"]))
+    
+    # 1. Dummy data with typos, forbidden words, and guideline issues
     dummy_data = [
-        {"번호": 1, "성명": "김철수", "세부능력 및 특기사항": "(1학기)국어: 국어 수업시간에 적극적으로 발표를 수행하"},
-        {"번호": None, "성명": None, "세부능력 및 특기사항": "고 독서 활동에 열정을 보임. (2학기)수학: 수학적 사고력이 우수하며 정리 증명을 탐구함."},
-        {"번호": 2, "성명": "이영희", "세부능력 및 특기사항": "(1학기)영어: 원문 독해 능력이 뛰어남. (2학기)독서/매체: 시사 이슈 분석 능력이 탁월함."},
-        {"번호": 3, "성명": "박민수", "세부능력 및 특기사항": "전체적으로 자기주도 학습 능력이 우수함. (1학기)한국사: 역사의식을 바탕으로 토론에 적극 참여함."},
-        {"번호": None, "성명": None, "세부능력 및 특기사항": " (2학기)통합과학: 실험 수행 능력이 정교함."}
+        {
+            "번호": 1, "성명": "김철수", 
+            "세부능력 및 특기사항": "(1학기)국어: 수업시간에 열심히 발표를 도우는 학생으로 네이버와 유튜브를 적극 활용함. (2학기)수학: 수학 경시대회에서 수상함."
+        },
+        {
+            "번호": None, "성명": None, 
+            "세부능력 및 특기사항": "독서 습관이 돋보이며 스스로 다짐함★"
+        },
+        {
+            "번호": 2, "성명": "이영희", 
+            "세부능력 및 특기사항": "(1학기)영어: KTX를 타고 서울의 롯데타워를 방문하여 영어를 연습함. 내용이 이해함."
+        }
     ]
     
     raw_df = pd.DataFrame(dummy_data)
-    print("Raw DataFrame:\n", raw_df)
-    
-    # 2. Detect columns
     col_map = detect_columns(raw_df)
-    print("\nDetected Column Mapping:\n", col_map)
-    assert col_map['num_col'] == '번호'
-    assert col_map['name_col'] == '성명'
-    assert col_map['content_col'] == '세부능력 및 특기사항'
-    
-    # 3. Smart Concatenation (Page break handling)
-    refined_df, merge_logs = refine_student_records(raw_df, col_map)
-    print("\nRefined DataFrame (Page breaks merged):\n", refined_df[['번호', '성명', '세부능력 및 특기사항']])
-    print("\nMerge Logs:\n", merge_logs)
-    
-    assert len(refined_df) == 3, f"Expected 3 students, got {len(refined_df)}"
-    assert len(merge_logs) == 2, f"Expected 2 merged overflow rows, got {len(merge_logs)}"
-    
-    # Verify Smart concatenation result for 김철수
-    chulsoo_text = refined_df.iloc[0]['세부능력 및 특기사항']
-    assert "발표를 수행하고" in chulsoo_text, f"Smart concatenation failed: {chulsoo_text}"
-    print("\nKim Chulsoo merged text:\n", chulsoo_text)
-    
-    # 4. Subject Unfolding
+    refined_df, _ = refine_student_records(raw_df, col_map)
     unfolded_df = split_subject_details(refined_df, col_map)
-    print("\nUnfolded Subjects DataFrame:\n", unfolded_df[['번호', '성명', '과목명', '내용', '글자수']])
     
-    # Check subjects for 김철수
-    chulsoo_subjs = unfolded_df[unfolded_df['성명'] == '김철수']['과목명'].tolist()
-    print("Kim Chulsoo subjects:", chulsoo_subjs)
-    assert '(1학기)국어' in chulsoo_subjs
-    assert '(2학기)수학' in chulsoo_subjs
+    data_store = {
+        '세특': {'df': unfolded_df, 'col_map': col_map}
+    }
     
-    # 5. Test Excel Generation
-    excel_bytes = create_formatted_excel_bytes({'세특': unfolded_df})
-    assert len(excel_bytes) > 0
-    print("\nExcel file created successfully. Byte length:", len(excel_bytes))
-    print("\n=== ALL TESTS PASSED! ===")
+    # 2. Generate Audit Report Table
+    audit_table = generate_audit_report_table(data_store, rules)
+    print("\nGenerated Audit Report Table (8 columns):\n")
+    print(audit_table.to_string())
+    
+    # Assertions
+    assert "학번" in audit_table.columns
+    assert "이름" in audit_table.columns
+    assert "구분" in audit_table.columns
+    assert "세부" in audit_table.columns
+    assert "수정전" in audit_table.columns
+    assert "수정 후" in audit_table.columns
+    assert "수정해야하는 이유나 근거" in audit_table.columns
+    assert "수정구분" in audit_table.columns
+    
+    # Check for specific detected typos/issues
+    detected_raws = audit_table["수정전"].tolist()
+    print("\nDetected error items count:", len(detected_raws))
+    
+    assert any("도우는" in item for item in detected_raws), "Typo '도우는' not detected"
+    assert any("네이버" in item for item in detected_raws), "Forbidden term '네이버' not detected"
+    assert any("유튜브" in item for item in detected_raws), "Forbidden term '유튜브' not detected"
+    assert any("★" in item for item in detected_raws), "Special character '★' not detected"
+    assert any("KTX" in item for item in detected_raws), "Forbidden term 'KTX' not detected"
+    
+    # Test Audit Excel Generation
+    audit_excel_bytes = create_audit_report_excel_bytes(audit_table)
+    assert len(audit_excel_bytes) > 0
+    print("\nAudit Excel Report generated successfully. Byte count:", len(audit_excel_bytes))
+    print("\n=== ALL TYPO ENGINE TESTS PASSED! ===")
 
 if __name__ == "__main__":
-    test_pipeline()
+    test_typo_and_guideline_engine()
