@@ -402,6 +402,8 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 7. 창체 영역별 이수시간 기재 및 0시간 점검 규칙:
    - [중요 규칙] 창의적 체험활동(자율, 동아리, 진로활동 등)의 영역별 총 이수시간(예: '16시간', '34시간', '(16시간)')은 필수 기재 사항이므로 절대로 '소요시간/실적 기재 불가' 오류로 감지하지 마십시오.
    - [0시간 점검] 영역별 이수시간이 '0시간'으로 기록되어 있거나 텍스트 내 '(0시간)'이 작성된 경우에는 출결 및 실제 이수시간 점검을 위해 '수정 권장'으로 감지하고 "창체 영역별 이수 시간이 0시간으로 기재되어 있으니 출결 및 실제 이수 시간을 확인하십시오"라는 안내 사유를 제시하십시오.
+8. 창체 세부 영역 단일화 및 명확화:
+   - [필수 규칙] 창의적 체험활동의 'sub_category(세부)' 항목은 기록 내용을 분석하여 반드시 '자율활동', '동아리활동', '진로활동' 중 명확하게 1개 영역만 지정해야 합니다. 절대로 '자율/동아리/진로'처럼 여러 개를 슬래시로 묶어서 표기하지 마십시오.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【출력 형식 (JSON Schema)】
@@ -414,7 +416,7 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
       "student_name": "학생 이름",
       "category": "구분 (창체 / 세특 / 행발 중 하나)",
       "taken_grade": "이수학년 (예: 1학년, 2학년, 3학년)",
-      "sub_category": "세부 (자율 / 동아리 / 진로 / 과목명 / 행동특성 중 하나)",
+      "sub_category": "세부 (창체는 '자율활동', '동아리활동', '진로활동' 중 1개만 명확히 표기, 세특은 과목명, 행특은 '행동특성')",
       "original_text": "오류가 발견된 수정 전 단어/문구",
       "suggested_text": "올바르게 교정된 수정 후 추천 문구",
       "reason": "수정해야 하는 명확한 이유나 근거 (맞춤법, 띄어쓰기, 문법, 브랜드명 대체 사유 등 구체적 이유를 작성하되 지침 조항 번호는 절대 기재하지 말 것)",
@@ -529,6 +531,29 @@ def clean_text_content(text) -> str:
     text_str = text_str.replace('\r\n', ' ').replace('\n', ' ').replace('\t', ' ')
     text_str = re.sub(r'\s+', ' ', text_str)
     return text_str.strip()
+
+
+def infer_changche_sub_cat(raw_sub: str, text_content: str) -> str:
+    s_clean = str(raw_sub).strip() if pd.notna(raw_sub) else ""
+    t_clean = str(text_content).strip() if pd.notna(text_content) else ""
+
+    if s_clean and '/' not in s_clean and s_clean not in ['nan', 'NaN', 'None', '기타', '창체']:
+        if '자율' in s_clean:
+            return '자율활동'
+        if '동아리' in s_clean:
+            return '동아리활동'
+        if '진로' in s_clean:
+            return '진로활동'
+        return s_clean
+
+    if any(k in t_clean for k in ['동아리', '부원로서', '부원', '동아리활동', '자율동아리', '학술동아리']):
+        return '동아리활동'
+    if any(k in t_clean for k in ['진로', '직업', '전공', '진로탐색', '진로활동', '희망 직업', '희망분야']):
+        return '진로활동'
+    if any(k in t_clean for k in ['자율', '자율활동', '학급', '임원', '반장', '부반장', '1인1역', '주제탐구']):
+        return '자율활동'
+
+    return '자율활동'
 
 
 def smart_concatenate_text(base_text: str, append_text: str) -> str:
@@ -1073,8 +1098,10 @@ def prepare_records_for_llm(data_store: dict, target_current_grade: int = None) 
             name_val = str(row.get(name_c, '')).strip()
             num_str = re.sub(r'\D', '', num_raw)
 
+            text_content = str(row.get('내용', row.get(content_c, '')))
             if t_key == "창체":
-                sub_cat = str(row.get('영역', row.get('활동영역', '자율/동아리/진로'))).strip()
+                raw_sub = str(row.get('영역', row.get('활동영역', ''))).strip()
+                sub_cat = infer_changche_sub_cat(raw_sub, text_content)
             elif t_key == "세특":
                 sub_cat = str(row.get('과목명', row.get('과목', '과목미지정'))).strip()
             else:
@@ -1685,13 +1712,20 @@ def main():
                             
                             audit_rows = []
                             for item in raw_findings:
+                                cat_item = str(item.get("category", "세특")).strip()
+                                sub_cat_item = str(item.get("sub_category", "")).strip()
+                                orig_text_item = str(item.get("original_text", "")).strip()
+
+                                if cat_item in ["창체", "창의적체험활동"] or "/" in sub_cat_item or "자율" in sub_cat_item or "동아리" in sub_cat_item or "진로" in sub_cat_item:
+                                    sub_cat_item = infer_changche_sub_cat(sub_cat_item, orig_text_item)
+
                                 audit_rows.append({
                                     "학번": item.get("student_id", "00000"),
                                     "이름": item.get("student_name", ""),
-                                    "구분": item.get("category", "세특"),
+                                    "구분": cat_item,
                                     "이수학년": item.get("taken_grade", "1학년"),
-                                    "세부": item.get("sub_category", ""),
-                                    "수정전": item.get("original_text", ""),
+                                    "세부": sub_cat_item,
+                                    "수정전": orig_text_item,
                                     "수정 후": item.get("suggested_text", ""),
                                     "수정해야하는 이유나 근거": item.get("reason", ""),
                                     "수정구분": item.get("severity", "수정 필수")
