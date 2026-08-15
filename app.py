@@ -730,8 +730,25 @@ def detect_columns(df: pd.DataFrame) -> tuple:
             break
 
     if header_idx is not None:
-        df_processed.columns = [str(v).strip() for v in df_processed.iloc[header_idx].values]
-        df_processed = df_processed.iloc[header_idx + 1:].reset_index(drop=True)
+        h1 = [str(v).strip() for v in df_processed.iloc[header_idx].values]
+        skip_rows = 1
+        if header_idx + 1 < len(df_processed):
+            h2_str = "".join([str(v).replace(" ", "") for v in df_processed.iloc[header_idx + 1].values if pd.notna(v)])
+            if any(k in h2_str for k in ['영역', '특기사항', '시간', '구분', '내용']):
+                h2 = [str(v).strip() for v in df_processed.iloc[header_idx + 1].values]
+                combined = []
+                for c1, c2 in zip(h1, h2):
+                    if c2 and c2.lower() != 'nan' and c2.lower() != 'none':
+                        combined.append(c2)
+                    elif c1 and c1.lower() != 'nan' and c1.lower() != 'none':
+                        combined.append(c1)
+                    else:
+                        combined.append('nan')
+                h1 = combined
+                skip_rows = 2
+
+        df_processed.columns = h1
+        df_processed = df_processed.iloc[header_idx + skip_rows:].reset_index(drop=True)
 
     df_processed = deduplicate_columns(df_processed)
 
@@ -780,6 +797,14 @@ def detect_columns(df: pd.DataFrame) -> tuple:
             for kw in grade_keywords:
                 if kw in col_clean:
                     mapped['grade_col'] = col
+                    break
+
+    if not mapped['area_col']:
+        for col in columns:
+            if col not in [mapped['num_col'], mapped['name_col'], mapped['content_col']]:
+                sample_vals = df_processed[col].dropna().astype(str).tolist()[:50]
+                if any(v in ['자율활동', '동아리활동', '진로활동', '자율', '동아리', '진로'] for v in sample_vals):
+                    mapped['area_col'] = col
                     break
 
     if not mapped['num_col'] and len(columns) > 0:
@@ -940,11 +965,18 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 
             curr_num = current_student_record[num_col] if current_student_record else None
             curr_name = current_student_record[name_col] if current_student_record else None
-            curr_area = current_student_record.get(area_col, '') if (current_student_record and area_col) else ''
+            curr_area = current_student_record.get('sub_category', current_student_record.get(area_col, '')) if current_student_record else ''
 
             is_same_student = (current_student_record is not None and curr_num == target_num and curr_name == target_name)
-            effective_area = area_val if (area_val and area_val.lower() != 'none') else active_area
-            is_same_area = (not area_col or not effective_area or not curr_area or effective_area == curr_area or effective_area in curr_area or curr_area in effective_area)
+
+            if area_val and area_val.lower() != 'none' and area_val not in ['영역', '활동영역', '창의적체험활동', '구분', '세부']:
+                effective_area = area_val
+            elif is_same_student and curr_area:
+                effective_area = curr_area
+            else:
+                effective_area = get_changche_area_from_cell(area_val, content_val)
+
+            is_same_area = (not effective_area or not curr_area or effective_area == curr_area or effective_area in curr_area or curr_area in effective_area)
 
             is_new_activity_start = (
                 re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', content_val) or 
@@ -976,9 +1008,10 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             new_record[name_col] = target_name
             new_record[content_col] = content_val
 
-            eff_area = area_val if (area_val and area_val.lower() != 'none') else (active_area if active_area else "진로활동")
+            eff_area = effective_area
             eff_grade = grade_val if (grade_val and grade_val.lower() != 'none') else (active_grade if active_grade else "3")
 
+            new_record['sub_category'] = eff_area
             if area_col:
                 new_record[area_col] = eff_area
             else:
