@@ -407,8 +407,10 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
    - [필수 규칙] 창의적 체험활동의 'sub_category(세부)' 항목은 기록 내용을 분석하여 반드시 '자율활동', '동아리활동', '진로활동' 중 명확하게 1개 영역만 지정해야 합니다. 절대로 '자율/동아리/진로'처럼 여러 개를 슬래시로 묶어서 표기하지 마십시오.
 9. 기업/브랜드 알파벳 1글자 블라인드 표기 허용 규칙:
    - [중요 규칙] 'E사', 'A사', 'B사', 'K사'처럼 기업명이나 상호명을 블라인드/익명화하기 위한 '알파벳 1글자+사(社)' 형태의 표기(예: 'E사', 'A사')는 정당한 익명화 기재 방식입니다. 1글자짜리 정식회사명이나 브랜드는 존재하지 않으므로 절대로 '상호명/기업 이니셜 사용' 오류로 감지하거나 지적하지 마십시오.
-11. 엑셀 페이지 나눔 결합 과정의 띄어쓰기 예외 규칙:
-   - [필수 규칙] 엑셀 페이지 나눔으로 인해 쪼개졌다가 병합된 문장(예: 단어 중간 띄어쓰기 '상대 성', '분석 함', 어절 연결 띄어쓰기 등)은 엑셀 데이터 원본 병합 과정의 특성이므로 띄어쓰기 오류로 지적하거나 수정 권장/필수 항목으로 감지하지 마십시오. 단어 간 띄어쓰기 변경(공백 추가/제거만으로 이루어진 교정)은 검출 항목에서 예외 처리하여 감지하지 마십시오.
+11. 엑셀 페이지 나눔/변경 결합 과정의 띄어쓰기 예외 규칙:
+   - [필수 규칙] 엑셀 페이지 변경 및 나눔 과정에서 쪼개졌다가 이어붙여진(병합된) 활동 내용 문장(예: 단어 중간 띄어쓰기 '상대 성', '분석 함', 어절 연결 띄어쓰기, 줄바꿈/페이지 결합 띄어쓰기 등)은 엑셀 데이터 원본 병합 특성이므로 절대로 띄어쓰기 오류로 지적하거나 검출하지 마십시오. 공백/띄어쓰기 변경 교정 항목은 모두 검출 결과에서 엄격히 예외 처리하여 오류로 잡지 마십시오.
+12. 동아리활동 (동아리명)(이수시간) 표기 디폴트 허용 규칙:
+   - [필수 규칙] 창의적 체험활동의 '동아리활동' 서술문 시작 부분에 '(동아리명)(이수시간)' (예: '(시네마틱)(16시간)', '(과학탐구반)(17시간)') 형태로 동아리 명칭과 이수시간을 괄호로 표기하는 것은 나이스(NEIS) 기본 디폴트 기재 서식입니다. 괄호 내 동아리명이나 이수시간 표기를 절대로 지침 위반, 구체적 동아리명 사용 오탈자, 또는 삭제/수정 대상 오류로 감지하거나 지적하지 마십시오.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【출력 형식 (JSON Schema)】
@@ -548,9 +550,21 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
         if orig in ['희망분야', '희망 분야']:
             continue
 
-        # 5. Skip pure spacing-only modifications resulting from page splits/concatenation
-        if orig.replace(" ", "") == sugg.replace(" ", ""):
+        # 5. Skip spacing-only modifications and page-split concatenation spacing errors (사용자 지침: 페이지 변경과정에서 활동내용 이어붙일때 생기는 띄어쓰기 오류는 오류로 잡지마)
+        if orig.replace(" ", "").replace("\t", "").replace("\n", "") == sugg.replace(" ", "").replace("\t", "").replace("\n", ""):
             continue
+
+        if '띄어쓰기' in reason or '페이지' in reason or '이어붙' in reason or '병합' in reason:
+            if orig.replace(" ", "") == sugg.replace(" ", "") or '공백' in reason:
+                continue
+
+        # 6. Skip false errors on Dongari default format (동아리명)(이수시간) (사용자 지침: 동아리활동의 경우는 '(동아리명)(이수시간)' 표기가 디폴트야. 오류표시하면 안돼)
+        sub_c = str(res_item.get('sub_category', '')).strip()
+        if '동아리' in sub_c or re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', orig):
+            if ('동아리' in reason or '괄호' in reason or '활동 명칭' in reason) and ('제거' in reason or '삭제' in reason or '표기' in reason or '명시' in reason or '수정' in reason):
+                continue
+            if re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', orig):
+                continue
 
         filtered_results.append(res_item)
 
@@ -1048,12 +1062,9 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
         
         last_r = final_refined_rows[-1]
         same_st = (str(last_r[num_col]).strip() == str(r[num_col]).strip() and str(last_r[name_col]).strip() == str(r[name_col]).strip())
-        last_sub = last_r.get('sub_category', '')
-        curr_sub = r.get('sub_category', '')
-        if last_sub and curr_sub:
-            same_ar = (last_sub == curr_sub)
-        else:
-            same_ar = (not area_col or (last_area and curr_area and (last_area == curr_area or curr_area in last_area or last_area in curr_area)))
+        last_sub = str(last_r.get('sub_category', last_r.get(area_col, '') if area_col else '')).strip()
+        curr_sub = str(r.get('sub_category', r.get(area_col, '') if area_col else '')).strip()
+        same_ar = (bool(last_sub and curr_sub) and (last_sub == curr_sub or curr_sub in last_sub or last_sub in curr_sub))
         
         last_text = str(last_r[content_col]).strip()
         curr_text = str(r[content_col]).strip()
@@ -1251,34 +1262,28 @@ def auto_detect_current_grade(data_store: dict) -> int:
 
 def auto_detect_class_number(data_store: dict) -> int:
     """
-    창체(셀 A3), 세특(셀 A4), 행특(셀 A3) 등 각 영역별 원본 엑셀 지정 셀 위치를 최우선 정밀 검제하여
+    창체(셀 A3), 세특(셀 A4), 행특(셀 A3) 등 각 영역별 원본 raw_df 지정 셀 위치를 최우선(1순위) 정밀 검체하여
     반 번호(예: 1반, 2반 -> 302XX 학번)를 100% 오차 없이 자동 감지합니다.
     """
+    # 1. raw_df 원본 엑셀 지정 셀 위치 (세특: A4셀, 창체/행특: A3셀) 최우선(1순위) 점검
     for t_key in ["창체", "세특", "행특"]:
         if t_key not in data_store or data_store[t_key] is None:
             continue
         item = data_store[t_key]
-        df = item['df']
-        c_map = item['col_map']
+        raw_df = item.get('raw_df')
+        if raw_df is None and isinstance(data_store.get('raw_data'), dict):
+            raw_df = data_store['raw_data'].get(t_key)
+        if raw_df is None:
+            raw_df = item.get('df')
+        if raw_df is None or raw_df.empty:
+            continue
 
-        # 1. 5자리 학번이 엑셀 본문에 이미 존재하는 경우 (예: 30215 -> 2반)
-        num_c = c_map.get('num_col')
-        if num_c and num_c in df.columns:
-            num_vals = [re.sub(r'\D', '', str(v)) for v in df[num_c].values if pd.notna(v)]
-            five_digit_ids = [v for v in num_vals if len(v) == 5]
-            if five_digit_ids:
-                ban_digits = [int(v[1:3]) for v in five_digit_ids if 1 <= int(v[1:3]) <= 30]
-                if ban_digits:
-                    return ban_digits[0]
-
-        # 2. raw_df 원본 엑셀 지정 셀 위치 (세특: A4셀, 창체/행특: A3셀) 최우선 점검
-        target_df = item.get('raw_df', df)
         specific_cell_str = ""
         try:
-            if t_key == "세특" and len(target_df) >= 4:
-                specific_cell_str = str(target_df.iloc[3, 0])
-            elif len(target_df) >= 3:
-                specific_cell_str = str(target_df.iloc[2, 0])
+            if t_key == "세특" and len(raw_df) >= 4:
+                specific_cell_str = str(raw_df.iloc[3, 0])
+            elif len(raw_df) >= 3:
+                specific_cell_str = str(raw_df.iloc[2, 0])
         except Exception:
             pass
 
@@ -1287,9 +1292,7 @@ def auto_detect_class_number(data_store: dict) -> int:
             if m_spec:
                 return int(m_spec.group(1))
 
-        # 3. 원본 헤더 영역 전체 셀 텍스트 샘플에서 'X학년 Y반' 또는 'Y반' 패턴 감지
-        sample_str = " ".join([str(v) for v in target_df.astype(str).values.flatten()[:500] if pd.notna(v)])
-        
+        sample_str = " ".join([str(v) for v in raw_df.astype(str).values.flatten()[:500] if pd.notna(v)])
         m_ban = re.search(r'\d+\s*학년\s*(\d+)\s*반', sample_str)
         if m_ban:
             return int(m_ban.group(1))
@@ -1297,6 +1300,22 @@ def auto_detect_class_number(data_store: dict) -> int:
         m_ban2 = re.search(r'(\d+)\s*반', sample_str)
         if m_ban2:
             return int(m_ban2.group(1))
+
+    # 2. raw_df 셀에서 반 정보를 찾지 못했을 경우에만 본문 5자리 학번 패턴 점검
+    for t_key in ["창체", "세특", "행특"]:
+        if t_key not in data_store or data_store[t_key] is None:
+            continue
+        item = data_store[t_key]
+        df = item['df']
+        c_map = item['col_map']
+        num_c = c_map.get('num_col')
+        if num_c and num_c in df.columns:
+            num_vals = [re.sub(r'\D', '', str(v)) for v in df[num_c].values if pd.notna(v)]
+            five_digit_ids = [v for v in num_vals if len(v) == 5]
+            if five_digit_ids:
+                ban_digits = [int(v[1:3]) for v in five_digit_ids if 1 <= int(v[1:3]) <= 30]
+                if ban_digits:
+                    return ban_digits[0]
 
     return 1
 
@@ -1648,8 +1667,7 @@ def create_audit_report_pdf_bytes(audit_df: pd.DataFrame) -> bytes:
         ]
         table_data.append(r_data)
 
-    t = Table(table_data, colWidths=col_widths, repeatRows=1)
-    t.setStyle(TableStyle([
+    t_style_cmds = [
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
@@ -1658,7 +1676,15 @@ def create_audit_report_pdf_bytes(audit_df: pd.DataFrame) -> bytes:
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
         ('LEFTPADDING', (0, 0), (-1, -1), 3),
         ('RIGHTPADDING', (0, 0), (-1, -1), 3),
-    ]))
+    ]
+
+    for row_idx, row in enumerate(audit_df.to_dict('records'), start=1):
+        sev_val = str(row.get('수정구분', '')).strip()
+        if '필수' in sev_val:
+            t_style_cmds.append(('BACKGROUND', (8, row_idx), (8, row_idx), colors.HexColor("#FEF08A")))
+
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    t.setStyle(TableStyle(t_style_cmds))
 
     elements.append(t)
     doc.build(elements, canvasmaker=NumberedCanvas)
@@ -2011,6 +2037,7 @@ def main():
 
                         st.session_state['data_store'][type_key] = {
                             'df': final_df,
+                            'raw_df': raw_df,
                             'col_map': col_map
                         }
                         st.session_state['data_store']['merge_logs'][type_key] = logs
@@ -2126,7 +2153,14 @@ def main():
                                 orig_text_item = str(item.get("original_text", item.get("수정전", ""))).strip()
                                 st_id = str(item.get("student_id", item.get("학번", "00000"))).strip()
 
-                                matched_payload = next((p for p in records_payload if p["학번"] == st_id or (orig_text_item and orig_text_item in p["기록텍스트"])), None)
+                                matched_payload = None
+                                if orig_text_item:
+                                    matched_payload = next((p for p in records_payload if p["학번"] == st_id and orig_text_item in p["기록텍스트"]), None)
+                                if not matched_payload and sub_cat_item and sub_cat_item not in ["창체", "창의적체험활동"]:
+                                    matched_payload = next((p for p in records_payload if p["학번"] == st_id and p["세부"] == sub_cat_item), None)
+                                if not matched_payload and orig_text_item:
+                                    matched_payload = next((p for p in records_payload if orig_text_item in p["기록텍스트"]), None)
+
                                 if matched_payload and matched_payload.get("세부"):
                                     sub_cat_item = matched_payload["세부"]
                                 elif cat_item in ["창체", "창의적체험활동"] and (not sub_cat_item or sub_cat_item in ["창체", "창의적체험활동"]):
