@@ -290,7 +290,8 @@ def smart_concatenate_text(base_text: str, append_text: str) -> str:
 # ==============================================================================
 def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool:
     """
-    엑셀의 매 페이지마다 반복되는 제목, 헤더('번호', '성명'), 푸터('포곡고등학교', '사용자명', '페이지 번호')를 걸러냅니다.
+    엑셀의 매 페이지마다 반복되는 제목, 헤더('번호', '성명'), 푸터('포곡고등학교', '사용자명', '페이지 번호'),
+    및 과목 구분 타이틀('<진로 선택 과목>', '<체육ㆍ예술>')을 걸러냅니다.
     """
     vals = [str(v).strip() for v in row_dict.values() if pd.notna(v)]
     combined = "".join(vals).replace(" ", "")
@@ -298,7 +299,11 @@ def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool
     num_val_str = str(row_dict.get(num_col, '')).replace(" ", "") if num_col else ""
     name_val_str = str(row_dict.get(name_col, '')).replace(" ", "") if name_col else ""
 
-    # 1. 헤더 행 탐지 ('번호'와 '성명'이 컬럼명/헤더로 들어있는 경우)
+    # 1. 과목/영역 구분 섹션 헤더 (예: <진로 선택 과목>, <체육ㆍ예술>, <공통 과목>)
+    if re.search(r'<[가-힣\sㆍ·/]+>', num_val_str) or re.search(r'<[가-힣\sㆍ·/]+>', combined):
+        return True
+
+    # 2. 헤더 행 탐지 ('번호'와 '성명'이 컬럼명/헤더로 들어있는 경우)
     if '번호' in num_val_str or '성명' in name_val_str or '번 호' in num_val_str or '성 명' in name_val_str:
         return True
     if '영역' in combined and ('시간' in combined or '특기사항' in combined):
@@ -306,7 +311,7 @@ def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool
     if '창의적체험활동상황' in combined:
         return True
 
-    # 2. 푸터/페이지 정보 탐지
+    # 3. 푸터/페이지 정보 탐지
     if '포곡고등학교' in combined or '사용자명' in combined or '페이지' in combined:
         return True
     if re.search(r'\d+/\d+\.?\d*', combined) or re.search(r'\d+학년\d+반', combined):
@@ -340,16 +345,18 @@ def detect_columns(df: pd.DataFrame) -> tuple:
         'name_col': None,
         'content_col': None,
         'area_col': None,
+        'grade_col': None,
         'extra_cols': []
     }
 
     num_keywords = ['번호', '학생번호', '순번', 'no', 'num', 'id', '학번']
     name_keywords = ['성명', '이름', '학생명', '성 명', 'name', '학생']
     content_keywords = [
-        '세부능력 및 특기사항', '세부능력및특기사항', '행동특성 및 종합의견', '행동특성및종합의견',
+        '세부능력 및 특기사항', '세부능력및특기사항', '행동특성 및 종합의견', '행동특성및종합의견', '행동특성',
         '창의적 체험활동 영역별 특기사항', '창체', '특기사항', '기록 내용', '기록내용', '내용', '종합의견', '세특'
     ]
     area_keywords = ['영역', '활동영역', '구분', '과목', '과목명']
+    grade_keywords = ['학년', '학 년']
 
     for col in columns:
         col_clean = str(col).strip().replace(" ", "").lower()
@@ -372,6 +379,11 @@ def detect_columns(df: pd.DataFrame) -> tuple:
             for kw in area_keywords:
                 if kw in col_clean:
                     mapped['area_col'] = col
+                    break
+        if not mapped['grade_col']:
+            for kw in grade_keywords:
+                if kw in col_clean:
+                    mapped['grade_col'] = col
                     break
 
     if not mapped['num_col'] and len(columns) > 0:
@@ -407,10 +419,13 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
     name_col = col_map['name_col']
     content_col = col_map['content_col']
     area_col = col_map.get('area_col')
+    grade_col = col_map.get('grade_col')
 
     refined_rows = []
     merge_logs = []
     current_student_record = None
+    active_num = ""
+    active_name = ""
 
     for idx, row in df.iterrows():
         try:
@@ -424,17 +439,43 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             name_val = row[name_col] if name_col in row else None
             content_val = clean_text_content(row[content_col]) if content_col in row else ""
             area_val = str(row[area_col]).strip() if area_col and area_col in row and pd.notna(row[area_col]) else ""
+            grade_val = str(row[grade_col]).strip().replace(".0", "") if grade_col and grade_col in row and pd.notna(row[grade_col]) else ""
 
             is_num_empty = pd.isna(num_val) or str(num_val).strip() in ['', 'nan', 'NaN', 'None']
             is_name_empty = pd.isna(name_val) or str(name_val).strip() in ['', 'nan', 'NaN', 'None']
+            is_grade_empty = not grade_val or grade_val.lower() == 'nan'
 
             num_str = "" if is_num_empty else str(num_val).strip()
             name_str = "" if is_name_empty else str(name_val).strip()
 
+            if num_str and name_str:
+                active_num = num_str
+                active_name = name_str
+
             # ------------------------------------------------------------------
-            # Case A: 번호/성명이 비어 있는 페이지 절단 행
+            # Case A-1: 번호/이름이 비어있고 학년(Grade)만 존재하는 경우 (행특 다학년 레코드)
             # ------------------------------------------------------------------
-            if is_num_empty and is_name_empty:
+            if is_num_empty and is_name_empty and not is_grade_empty and active_num and active_name:
+                if current_student_record is not None:
+                    refined_rows.append(current_student_record)
+                
+                new_record = row.to_dict()
+                new_record[num_col] = active_num
+                new_record[name_col] = active_name
+                new_record[content_col] = content_val
+                if grade_col:
+                    new_record[grade_col] = (grade_val + "학년") if not grade_val.endswith("학년") else grade_val
+                new_record['_original_excel_row'] = idx + 2
+                new_record['_merged_count'] = 0
+                new_record['_merged_rows'] = []
+
+                current_student_record = new_record
+                continue
+
+            # ------------------------------------------------------------------
+            # Case A-2: 번호/성명이 비어 있는 페이지 절단 행
+            # ------------------------------------------------------------------
+            if is_num_empty and is_name_empty and is_grade_empty:
                 if current_student_record is not None and content_val:
                     prev_content = current_student_record[content_col]
                     merged_content = smart_concatenate_text(prev_content, content_val)
@@ -456,6 +497,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             if (current_student_record is not None and 
                 current_student_record[num_col] == num_str and 
                 current_student_record[name_col] == name_str and 
+                is_grade_empty and
                 (not area_val or current_student_record.get(area_col, '') == area_val or area_val in current_student_record.get(area_col, ''))):
 
                 # 새로운 동아리/과목 활동 시작 패턴인지 확인
@@ -483,9 +525,14 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             # Case C: 신규 레코드 시작
             # ------------------------------------------------------------------
             new_record = row.to_dict()
+            new_record[num_col] = num_str if num_str else active_num
+            new_record[name_col] = name_str if name_str else active_name
             new_record[content_col] = content_val
             if area_col:
                 new_record[area_col] = area_val
+            if grade_col and grade_val:
+                new_record[grade_col] = (grade_val + "학년") if not grade_val.endswith("학년") else grade_val
+
             new_record['_original_excel_row'] = idx + 2
             new_record['_merged_count'] = 0
             new_record['_merged_rows'] = []
