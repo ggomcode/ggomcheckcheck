@@ -1717,7 +1717,6 @@ def main():
                     """)
 
         with st.expander("엑셀 파일 업로드", expanded=True):
-            st.caption("📌 NEIS **[학교생활기록부 ➔ 영역별 조회]**에서 창의적체험활동, 교과학습발달상황(세특), 행동특성및종합의견을 **xls data** 형식으로 다운로드해 업로드하세요.")
             uploaded_files = st.file_uploader(
                 "생기부 엑셀 파일 (.xlsx, .xls)",
                 type=["xlsx", "xls"],
