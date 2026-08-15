@@ -816,7 +816,6 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 
             is_num_empty = pd.isna(num_val) or str(num_val).strip() in ['', 'nan', 'NaN', 'None']
             is_name_empty = pd.isna(name_val) or str(name_val).strip() in ['', 'nan', 'NaN', 'None']
-            is_grade_empty = not grade_val or grade_val.lower() == 'nan'
 
             num_str = "" if is_num_empty else str(num_val).strip()
             name_str = "" if is_name_empty else str(name_val).strip()
@@ -825,71 +824,50 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                 active_num = num_str
                 active_name = name_str
 
-            if is_num_empty and is_name_empty and not is_grade_empty and active_num and active_name:
-                if current_student_record is not None:
-                    refined_rows.append(current_student_record)
-                
-                new_record = row.to_dict()
-                new_record[num_col] = active_num
-                new_record[name_col] = active_name
-                new_record[content_col] = content_val
-                if grade_col:
-                    new_record[grade_col] = (grade_val + "학년") if not grade_val.endswith("학년") else grade_val
-                new_record['_original_excel_row'] = idx + 2
-                new_record['_merged_count'] = 0
-                new_record['_merged_rows'] = []
+            target_num = num_str if num_str else active_num
+            target_name = name_str if name_str else active_name
 
-                current_student_record = new_record
+            if not target_num or not target_name:
                 continue
 
-            if is_num_empty and is_name_empty and is_grade_empty:
-                if current_student_record is not None and content_val:
-                    prev_content = current_student_record[content_col]
-                    merged_content = smart_concatenate_text(prev_content, content_val)
-                    current_student_record[content_col] = merged_content
-                    current_student_record['_merged_count'] += 1
-                    current_student_record['_merged_rows'].append(idx + 2)
-
-                    merge_logs.append({
-                        'excel_row': idx + 2,
-                        'target_student': f"{current_student_record[num_col]}번 {current_student_record[name_col]}",
-                        'appended_text': content_val,
-                        'result_content_snippet': merged_content[-80:]
-                    })
+            if not content_val:
                 continue
 
             curr_num = current_student_record[num_col] if current_student_record else None
             curr_name = current_student_record[name_col] if current_student_record else None
+            curr_area = current_student_record.get(area_col, '') if (current_student_record and area_col) else ''
 
-            if (current_student_record is not None and 
-                curr_num == (num_str or active_num) and 
-                curr_name == (name_str or active_name) and 
-                (not area_val or current_student_record.get(area_col, '') == area_val or area_val in current_student_record.get(area_col, ''))):
+            is_same_student = (current_student_record is not None and curr_num == target_num and curr_name == target_name)
+            is_same_area = (not area_col or not area_val or not curr_area or area_val == curr_area or area_val in curr_area or curr_area in area_val)
 
-                is_new_activity_start = (
-                    re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', content_val) or 
-                    re.match(r'^\([12]학기\)[가-힣·/]+:', content_val) or
-                    re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*:', content_val)
-                )
+            is_new_activity_start = (
+                re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', content_val) or 
+                re.match(r'^\([12]학기\)[가-힣·/]+:', content_val) or
+                re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*:', content_val)
+            )
 
-                if not is_new_activity_start and content_val:
-                    prev_content = current_student_record[content_col]
-                    merged_content = smart_concatenate_text(prev_content, content_val)
-                    current_student_record[content_col] = merged_content
-                    current_student_record['_merged_count'] += 1
-                    current_student_record['_merged_rows'].append(idx + 2)
+            if is_same_student and is_same_area and not is_new_activity_start:
+                prev_content = current_student_record[content_col]
+                merged_content = smart_concatenate_text(prev_content, content_val)
+                current_student_record[content_col] = merged_content
+                current_student_record['_merged_count'] += 1
+                current_student_record['_merged_rows'].append(idx + 2)
 
-                    merge_logs.append({
-                        'excel_row': idx + 2,
-                        'target_student': f"{current_student_record[num_col]}번 {current_student_record[name_col]}",
-                        'appended_text': content_val,
-                        'result_content_snippet': merged_content[-80:]
-                    })
-                    continue
+                merge_logs.append({
+                    'excel_row': idx + 2,
+                    'target_student': f"{current_student_record[num_col]}번 {current_student_record[name_col]}",
+                    'appended_text': content_val,
+                    'result_content_snippet': merged_content[-80:]
+                })
+                continue
+
+            if current_student_record is not None:
+                if str(current_student_record.get(content_col, '')).strip():
+                    refined_rows.append(current_student_record)
 
             new_record = row.to_dict()
-            new_record[num_col] = num_str if num_str else active_num
-            new_record[name_col] = name_str if name_str else active_name
+            new_record[num_col] = target_num
+            new_record[name_col] = target_name
             new_record[content_col] = content_val
             if area_col:
                 new_record[area_col] = area_val
@@ -900,19 +878,54 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             new_record['_merged_count'] = 0
             new_record['_merged_rows'] = []
 
-            if current_student_record is not None:
-                refined_rows.append(current_student_record)
-
             current_student_record = new_record
 
         except Exception as e:
             st.error(f"행 {idx + 2}번 처리 중 예외 발생: {str(e)}")
             continue
 
-    if current_student_record is not None:
+    if current_student_record is not None and str(current_student_record.get(content_col, '')).strip():
         refined_rows.append(current_student_record)
 
-    refined_df = pd.DataFrame(refined_rows)
+    # Post-Processing Pass: Merge cut-off fragment rows for same student/area
+    final_refined_rows = []
+    for r in refined_rows:
+        if not final_refined_rows:
+            final_refined_rows.append(r)
+            continue
+        
+        last_r = final_refined_rows[-1]
+        same_st = (str(last_r[num_col]).strip() == str(r[num_col]).strip() and str(last_r[name_col]).strip() == str(r[name_col]).strip())
+        last_area = str(last_r.get(area_col, '')).strip() if area_col else ''
+        curr_area = str(r.get(area_col, '')).strip() if area_col else ''
+        same_ar = (not area_col or not last_area or not curr_area or last_area == curr_area or curr_area in last_area or last_area in curr_area)
+        
+        last_text = str(last_r[content_col]).strip()
+        curr_text = str(r[content_col]).strip()
+        
+        ends_with_punct = bool(re.search(r'[.!?)]$', last_text))
+        is_new_header = (
+            re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', curr_text) or 
+            re.match(r'^\([12]학기\)[가-힣·/]+:', curr_text) or
+            re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*:', curr_text)
+        )
+
+        if same_st and same_ar and not ends_with_punct and not is_new_header:
+            merged = smart_concatenate_text(last_text, curr_text)
+            last_r[content_col] = merged
+            last_r['_merged_count'] += 1 + r.get('_merged_count', 0)
+            if '_merged_rows' in r:
+                last_r['_merged_rows'].extend(r['_merged_rows'])
+            merge_logs.append({
+                'excel_row': r.get('_original_excel_row', 0),
+                'target_student': f"{last_r[num_col]}번 {last_r[name_col]}",
+                'appended_text': curr_text,
+                'result_content_snippet': merged[-80:]
+            })
+        else:
+            final_refined_rows.append(r)
+
+    refined_df = pd.DataFrame(final_refined_rows)
     return refined_df, merge_logs
 
 
