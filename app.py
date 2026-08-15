@@ -750,10 +750,10 @@ def detect_columns(df: pd.DataFrame) -> tuple:
     return df_processed, mapped
 
 
-def detect_actual_record_type(filename: str, df_raw: pd.DataFrame, selected_type: str) -> tuple:
+def detect_actual_record_type(filename: str, df_raw: pd.DataFrame) -> str:
     """
     업로드된 파일명 및 엑셀 헤더/내용을 정밀 분석하여
-    사용자가 선택한 유형("세특")과 실제 파일 내용("행특")이 다를 경우 올바른 유형으로 자동 교정합니다.
+    데이터 유형("창체", "세특", "행특")을 자동으로 분류 판별합니다.
     """
     fn_clean = str(filename).lower()
     
@@ -777,13 +777,7 @@ def detect_actual_record_type(filename: str, df_raw: pd.DataFrame, selected_type
     elif '세부능력' in all_text or '과목명' in all_text:
         header_type = "세특"
 
-    actual_type = header_type or fn_type or selected_type
-
-    correction_msg = ""
-    if actual_type != selected_type:
-        correction_msg = f"업로드 선택은 [{selected_type}]이나, 파일 정밀 분석 결과 [{actual_type}] 데이터로 자동 교정 감지되어 올바른 유형으로 분류 처리되었습니다."
-
-    return actual_type, correction_msg
+    return header_type or fn_type or "세특"
 
 
 # ==============================================================================
@@ -1587,77 +1581,68 @@ def main():
                     """)
 
         with st.expander("엑셀 파일 업로드", expanded=True):
-            record_type = st.selectbox(
-                "업로드할 데이터 유형 선택",
-                ["세특 (세부능력 및 특기사항)", "창체 (창의적 체험활동)", "행특 (행동특성 및 종합의견)"]
-            )
-            
-            type_key = "세특" if "세특" in record_type else ("창체" if "창체" in record_type else "행특")
-
-            uploaded_file = st.file_uploader(
-                f"[{type_key}] 엑셀 파일 (.xlsx, .xls)",
+            uploaded_files = st.file_uploader(
+                "생기부 엑셀 파일 (.xlsx, .xls)",
                 type=["xlsx", "xls"],
-                key=f"file_{type_key}"
+                accept_multiple_files=True,
+                key="auto_file_uploader"
             )
 
-            if uploaded_file is not None:
-                try:
-                    file_sig = f"{type_key}_{uploaded_file.name}_{uploaded_file.size}"
-                    if 'file_signatures' not in st.session_state:
-                        st.session_state['file_signatures'] = {}
+            if uploaded_files:
+                for uploaded_file in uploaded_files:
+                    try:
+                        raw_df = pd.read_excel(uploaded_file)
+                        type_key = detect_actual_record_type(uploaded_file.name, raw_df)
 
-                    if st.session_state['file_signatures'].get(type_key) != file_sig:
-                        if st.session_state.get('llm_audit_results') is not None or st.session_state.get('has_audited', False):
-                            st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
-                            st.session_state['llm_audit_results'] = None
-                            st.session_state['has_audited'] = False
-                            st.sidebar.info("새 파일 업로드가 감지되어 이전 분석 결과 및 기존 데이터가 자동 초기화되었습니다.")
+                        file_sig = f"{type_key}_{uploaded_file.name}_{uploaded_file.size}"
+                        if 'file_signatures' not in st.session_state:
+                            st.session_state['file_signatures'] = {}
 
-                        st.session_state['file_signatures'][type_key] = file_sig
+                        if st.session_state['file_signatures'].get(type_key) != file_sig:
+                            if st.session_state.get('llm_audit_results') is not None or st.session_state.get('has_audited', False):
+                                st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
+                                st.session_state['llm_audit_results'] = None
+                                st.session_state['has_audited'] = False
+                                st.sidebar.info("새 파일 업로드가 감지되어 이전 분석 결과 및 기존 데이터가 자동 초기화되었습니다.")
 
-                    raw_df = pd.read_excel(uploaded_file)
-                    
-                    actual_type, corr_msg = detect_actual_record_type(uploaded_file.name, raw_df, type_key)
-                    if corr_msg:
-                        st.sidebar.info(corr_msg)
-                    type_key = actual_type
+                            st.session_state['file_signatures'][type_key] = file_sig
 
-                    st.session_state['data_store']['raw_data'][type_key] = raw_df
-                    if 'file_names' not in st.session_state['data_store']:
-                        st.session_state['data_store']['file_names'] = {}
-                    st.session_state['data_store']['file_names'][type_key] = uploaded_file.name
+                        st.session_state['data_store']['raw_data'][type_key] = raw_df
+                        if 'file_names' not in st.session_state['data_store']:
+                            st.session_state['data_store']['file_names'] = {}
+                        st.session_state['data_store']['file_names'][type_key] = uploaded_file.name
 
-                    df_processed, col_map = detect_columns(raw_df)
-                    refined_df, logs = refine_student_records(df_processed, col_map)
-                    
-                    if type_key == "세특":
-                        final_df = split_subject_details(refined_df, col_map)
-                    else:
-                        final_df = refined_df.copy()
-                        content_c = col_map['content_col']
-                        final_df['글자수'] = get_safe_series(final_df, content_c).astype(str).apply(len)
+                        df_processed, col_map = detect_columns(raw_df)
+                        refined_df, logs = refine_student_records(df_processed, col_map)
+                        
+                        if type_key == "세특":
+                            final_df = split_subject_details(refined_df, col_map)
+                        else:
+                            final_df = refined_df.copy()
+                            content_c = col_map['content_col']
+                            final_df['글자수'] = get_safe_series(final_df, content_c).astype(str).apply(len)
 
-                    st.session_state['data_store'][type_key] = {
-                        'df': final_df,
-                        'col_map': col_map
-                    }
-                    st.session_state['data_store']['merge_logs'][type_key] = logs
+                        st.session_state['data_store'][type_key] = {
+                            'df': final_df,
+                            'col_map': col_map
+                        }
+                        st.session_state['data_store']['merge_logs'][type_key] = logs
 
-                    num_c, name_c = col_map['num_col'], col_map['name_col']
-                    num_series = get_safe_series(final_df, num_c)
-                    name_series = get_safe_series(final_df, name_c)
-                    unique_students_cnt = len(pd.DataFrame({'num': num_series, 'name': name_series}).drop_duplicates())
-                    if type_key == "창체":
-                        st.sidebar.success(f"{type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생, {len(final_df)}개 영역 기록)")
-                    elif type_key == "세특":
-                        st.sidebar.success(f"{type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생, {len(final_df)}개 과목 기록)")
-                    else:
-                        st.sidebar.success(f"{type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생)")
+                        num_c, name_c = col_map['num_col'], col_map['name_col']
+                        num_series = get_safe_series(final_df, num_c)
+                        name_series = get_safe_series(final_df, name_c)
+                        unique_students_cnt = len(pd.DataFrame({'num': num_series, 'name': name_series}).drop_duplicates())
+                        if type_key == "창체":
+                            st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {len(final_df)}개 영역 기록)")
+                        elif type_key == "세특":
+                            st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {len(final_df)}개 과목 기록)")
+                        else:
+                            st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생)")
 
-                except Exception as e:
-                    st.sidebar.error(f"파일 처리 오류: {str(e)}")
-                    with st.expander("오류 상세 내용"):
-                        st.code(traceback.format_exc())
+                    except Exception as e:
+                        st.sidebar.error(f"파일 처리 오류 ({uploaded_file.name}): {str(e)}")
+                        with st.expander("오류 상세 내용"):
+                            st.code(traceback.format_exc())
 
         with st.expander("데이터 관리 메뉴", expanded=False):
             manage_mode = st.radio(
