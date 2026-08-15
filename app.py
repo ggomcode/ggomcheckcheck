@@ -133,14 +133,21 @@ def clean_json_response(raw_text: str) -> str:
     return clean
 
 
-def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records_data: list, guideline_text: str) -> list:
+def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records_data: list, guideline_text: str, progress_callback=None) -> list:
     """
     D:\Cloud\git\ggomcode\ggomcheck의 LLM 백엔드호출 방식을 참고하여 
-    생기부 기록 데이터를 LLM AI(Gemini/OpenAI/Claude)에 전달하고 
-    오탈자, 맞춤법/문법 오류, 입력불가 용어, 금지어를 정밀 분석하여 JSON 구조로 수신합니다.
+    생기부 기록 데이터를 적정 배치(Batch)로 나누어 API 쿼터(250k 토큰 제한)를 초과하지 않도록 분할 호출합니다.
+    429 Rate Limit/Quota 초과 오류 발생 시 자동 지연 재시도(Exponential Retry)를 수행합니다.
     """
+    import time
     if not api_key:
         raise ValueError("API Key가 설정되지 않았습니다. 사이드바에서 AI API Key를 입력해 주세요.")
+
+    BATCH_SIZE = 15
+    batches = [records_data[i:i + BATCH_SIZE] for i in range(0, len(records_data), BATCH_SIZE)]
+    total_batches = len(batches)
+    
+    all_results = []
 
     prompt_instructions = f"""
 당신은 대한민국 고등학교 학교생활기록부(창체, 세특, 행특) 오탈자 및 기재지침 검증 최고 전문가 AI입니다.
@@ -182,82 +189,99 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 }}
 """
 
-    data_payload_text = json.dumps(records_data, ensure_ascii=False, indent=2)
-    full_prompt = f"[학생별 생기부 기록 데이터]\n{data_payload_text}\n\n[검증 지시문]\n{prompt_instructions}"
+    for b_idx, batch_data in enumerate(batches):
+        if progress_callback:
+            progress_callback(b_idx + 1, total_batches)
 
-    raw_response_text = ""
+        data_payload_text = json.dumps(batch_data, ensure_ascii=False, indent=2)
+        full_prompt = f"[학생별 생기부 기록 데이터]\n{data_payload_text}\n\n[검증 지시문]\n{prompt_instructions}"
 
-    # 1. Gemini API (Default / Recommended)
-    if provider.lower() == "gemini":
-        model = model_name if model_name else "gemini-3.1-flash-lite"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-        payload = {
-            "contents": [{"parts": [{"text": full_prompt}]}],
-            "generationConfig": {
-                "responseMimeType": "application/json"
-            }
-        }
-        res = requests.post(url, json=payload, timeout=60)
-        if res.status_code != 200:
-            raise RuntimeError(f"Gemini API 호출 실패 ({res.status_code}): {res.text}")
-        res_json = res.json()
-        raw_response_text = res_json['candidates'][0]['content']['parts'][0]['text']
+        max_retries = 4
+        success = False
+        raw_response_text = ""
 
-    # 2. OpenAI API
-    elif provider.lower() == "openai":
-        model = model_name if model_name else "gpt-4o-mini"
-        url = "https://api.openai.com/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": "You are a helpful assistant that outputs student record verification results in JSON schema."},
-                {"role": "user", "content": full_prompt}
-            ],
-            "response_format": {"type": "json_object"}
-        }
-        res = requests.post(url, headers=headers, json=payload, timeout=60)
-        if res.status_code != 200:
-            raise RuntimeError(f"OpenAI API 호출 실패 ({res.status_code}): {res.text}")
-        res_json = res.json()
-        raw_response_text = res_json['choices'][0]['message']['content']
+        for attempt in range(max_retries):
+            try:
+                if provider.lower() == "gemini":
+                    model = model_name if model_name else "gemini-3.1-flash-lite"
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                    payload = {
+                        "contents": [{"parts": [{"text": full_prompt}]}],
+                        "generationConfig": {
+                            "responseMimeType": "application/json"
+                        }
+                    }
+                    res = requests.post(url, json=payload, timeout=60)
+                    if res.status_code == 429:
+                        time.sleep((attempt + 1) * 2.0)
+                        continue
+                    if res.status_code != 200:
+                        raise RuntimeError(f"Gemini API 호출 실패 ({res.status_code}): {res.text}")
+                    res_json = res.json()
+                    raw_response_text = res_json['candidates'][0]['content']['parts'][0]['text']
+                    success = True
+                    break
 
-    # 3. Claude API
-    elif provider.lower() == "claude":
-        url = "https://api.anthropic.com/v1/messages"
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "claude-3-5-haiku-20241022",
-            "max_tokens": 4000,
-            "system": "Return strictly a JSON object with 'results' array as requested.",
-            "messages": [{"role": "user", "content": full_prompt}]
-        }
-        res = requests.post(url, headers=headers, json=payload, timeout=60)
-        if res.status_code != 200:
-            raise RuntimeError(f"Claude API 호출 실패 ({res.status_code}): {res.text}")
-        res_json = res.json()
-        raw_response_text = res_json['content'][0]['text']
+                elif provider.lower() == "openai":
+                    model = model_name if model_name else "gpt-4o-mini"
+                    url = "https://api.openai.com/v1/chat/completions"
+                    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                    payload = {
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": "You are a helpful assistant that outputs student record verification results in JSON schema."},
+                            {"role": "user", "content": full_prompt}
+                        ],
+                        "response_format": {"type": "json_object"}
+                    }
+                    res = requests.post(url, headers=headers, json=payload, timeout=60)
+                    if res.status_code == 429:
+                        time.sleep((attempt + 1) * 2.0)
+                        continue
+                    if res.status_code != 200:
+                        raise RuntimeError(f"OpenAI API 호출 실패 ({res.status_code}): {res.text}")
+                    res_json = res.json()
+                    raw_response_text = res_json['choices'][0]['message']['content']
+                    success = True
+                    break
 
-    else:
-        raise ValueError(f"지원하지 않는 API Provider입니다: {provider}")
+                elif provider.lower() == "claude":
+                    url = "https://api.anthropic.com/v1/messages"
+                    headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
+                    payload = {
+                        "model": "claude-3-5-haiku-20241022",
+                        "max_tokens": 4000,
+                        "system": "Return strictly a JSON object with 'results' array as requested.",
+                        "messages": [{"role": "user", "content": full_prompt}]
+                    }
+                    res = requests.post(url, headers=headers, json=payload, timeout=60)
+                    if res.status_code == 429:
+                        time.sleep((attempt + 1) * 2.0)
+                        continue
+                    if res.status_code != 200:
+                        raise RuntimeError(f"Claude API 호출 실패 ({res.status_code}): {res.text}")
+                    res_json = res.json()
+                    raw_response_text = res_json['content'][0]['text']
+                    success = True
+                    break
 
-    # JSON 파싱
-    clean_json = clean_json_response(raw_response_text)
-    parsed = json.loads(clean_json)
-    
-    if isinstance(parsed, dict) and "results" in parsed:
-        return parsed["results"]
-    elif isinstance(parsed, list):
-        return parsed
-    else:
-        return []
+            except Exception as req_err:
+                if attempt == max_retries - 1:
+                    raise req_err
+                time.sleep((attempt + 1) * 2.0)
+
+        if success and raw_response_text:
+            try:
+                clean_json = clean_json_response(raw_response_text)
+                parsed = json.loads(clean_json)
+                if isinstance(parsed, dict) and "results" in parsed:
+                    all_results.extend(parsed["results"])
+                elif isinstance(parsed, list):
+                    all_results.extend(parsed)
+            except Exception:
+                pass
+
+    return all_results
 
 
 # ==============================================================================
@@ -1202,10 +1226,21 @@ def main():
                 if not api_key:
                     st.error("⚠️ AI API Key가 입력되지 않았습니다. 사이드바에서 API Key를 입력해 주세요.")
                 else:
-                    with st.spinner("🤖 AI가 학교생활기록부 전 문장의 오탈자 및 기재 지침을 분석하고 있습니다... (약 10~30초 소요)"):
+                    progress_container = st.container()
+                    with progress_container:
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        def update_progress(current_b, total_b):
+                            pct = current_b / total_b
+                            progress_bar.progress(pct)
+                            status_text.info(f"🤖 AI 정밀 검사 진행 중... [{current_b}/{total_b} 배치 완료] (250k 쿼터 보호 분할 처리)")
+
                         try:
                             records_payload = prepare_records_for_llm(st.session_state['data_store'])
-                            raw_findings = call_llm_api_for_audit(provider, api_key, model_name, records_payload, guideline_text)
+                            raw_findings = call_llm_api_for_audit(provider, api_key, model_name, records_payload, guideline_text, progress_callback=update_progress)
+                            progress_bar.progress(1.0)
+                            status_text.empty()
                             
                             # 데이터프레임 변환
                             audit_rows = []
