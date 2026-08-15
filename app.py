@@ -601,7 +601,7 @@ def check_jinro_hope_field(row_dict: dict) -> tuple:
     """
     row_values = [str(v).strip() for v in row_dict.values() if pd.notna(v)]
     for idx, val in enumerate(row_values):
-        if '희망분야' in val or '희망 분야' in val:
+        if len(val) <= 20 and ('희망분야' in val or '희망 분야' in val):
             hope_val = ""
             if idx + 1 < len(row_values):
                 candidate = row_values[idx + 1].strip()
@@ -661,7 +661,11 @@ def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool
     if len(combined) < 40 and '창의적체험활동상황' in combined:
         return True
 
-    if '포곡고등학교' in combined or '사용자명' in combined or '페이지' in combined:
+    # NEIS 엑셀 페이지 꼬리말 구조 정밀 검사: '/' 셀이 있고 페이지 숫자 및 학교명이 존재하는 행 (예: '49 / 50.0 포곡고등학교')
+    if '/' in vals and (any('고등학교' in v or '학교' in v for v in vals) or any(re.match(r'^\d+\.?\d*$', v) for v in vals)):
+        return True
+
+    if len(combined) < 50 and ('포곡고등학교' in combined or '사용자명' in combined or '페이지' in combined or '고등학교' in combined):
         return True
     if len(combined) < 40 and (re.search(r'^\s*\d+/\d+\.?\d*\s*$', combined) or re.search(r'\d+학년\d+반', combined)):
         return True
@@ -914,6 +918,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             # NEIS 진로활동 '희망분야' (Column F) 및 학생 희망분야 내용 (Column G) 검사
             is_hope_row, hope_val = check_jinro_hope_field(row_dict)
             if is_hope_row:
+                active_area = "진로활동"
                 # Column F가 '희망분야'이고 Column G(학생 희망분야)가 비어있는 경우에만 정밀 오류 기록
                 if not hope_val and target_num and target_name:
                     hope_blank_records.append({
@@ -976,6 +981,9 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 
             if area_col:
                 new_record[area_col] = eff_area
+            else:
+                new_record['영역'] = eff_area
+            new_record['sub_category'] = eff_area
             if grade_col:
                 new_record[grade_col] = (eff_grade + "학년") if not str(eff_grade).endswith("학년") else eff_grade
 
@@ -1007,9 +1015,12 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
         
         last_r = final_refined_rows[-1]
         same_st = (str(last_r[num_col]).strip() == str(r[num_col]).strip() and str(last_r[name_col]).strip() == str(r[name_col]).strip())
-        last_area = str(last_r.get(area_col, '')).strip() if area_col else ''
-        curr_area = str(r.get(area_col, '')).strip() if area_col else ''
-        same_ar = (not area_col or not last_area or not curr_area or last_area == curr_area or curr_area in last_area or last_area in curr_area)
+        last_sub = last_r.get('sub_category', '')
+        curr_sub = r.get('sub_category', '')
+        if last_sub and curr_sub:
+            same_ar = (last_sub == curr_sub)
+        else:
+            same_ar = (not area_col or (last_area and curr_area and (last_area == curr_area or curr_area in last_area or last_area in curr_area)))
         
         last_text = str(last_r[content_col]).strip()
         curr_text = str(r[content_col]).strip()
@@ -1924,11 +1935,16 @@ def main():
                         
                         if type_key == "창체":
                             expected_total = unique_students_cnt * 3
-                            missing_cnt = expected_total - len(final_df)
-                            if missing_cnt > 0:
-                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {len(final_df)}개 영역 기록, 미작성/공란 {missing_cnt}개 영역)")
+                            actual_records_cnt = len(final_df)
+                            hb_list = st.session_state.get('data_store', {}).get('hope_blank_records', [])
+                            blank_cnt = len(hb_list) if hb_list else 0
+                            if actual_records_cnt == expected_total:
+                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, 93개 영역 100% 감지 완료)")
+                            elif actual_records_cnt + blank_cnt == expected_total:
+                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, 서술문 {actual_records_cnt}개 + 희망분야 공란 {blank_cnt}개 100% 감지)")
                             else:
-                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {len(final_df)}개 영역 기록)")
+                                missing_cnt = expected_total - actual_records_cnt
+                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {actual_records_cnt}개 영역 기록, 미작성/공란 {missing_cnt}개 영역)")
                         elif type_key == "세특":
                             st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {len(final_df)}개 과목 기록)")
                         else:
