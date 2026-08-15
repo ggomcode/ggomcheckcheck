@@ -1121,6 +1121,9 @@ def main():
             try:
                 raw_df = pd.read_excel(uploaded_file)
                 st.session_state['data_store']['raw_data'][type_key] = raw_df
+                if 'file_names' not in st.session_state['data_store']:
+                    st.session_state['data_store']['file_names'] = {}
+                st.session_state['data_store']['file_names'][type_key] = uploaded_file.name
 
                 df_processed, col_map = detect_columns(raw_df)
                 refined_df, logs = refine_student_records(df_processed, col_map)
@@ -1278,22 +1281,30 @@ def main():
                     st.markdown("### 📋 AI 오탈자 및 검증 결과 표 (학번순 정렬)")
                     st.dataframe(filtered_df, use_container_width=True, height=450)
 
+                    # 동적 파일명 생성 (예: 생기부_검증_창체_1반.xlsx / .pdf)
+                    file_names = st.session_state['data_store'].get('file_names', {})
+                    base_names = [os.path.splitext(file_names[t])[0] for t in available_types if t in file_names]
+                    prefix = f"생기부_검증_{'_'.join(base_names)}" if base_names else "생기부_검증_리포트"
+
+                    excel_out_fname = f"{prefix}.xlsx"
+                    pdf_out_fname = f"{prefix}.pdf"
+
                     col_dl1, col_dl2 = st.columns(2)
                     with col_dl1:
                         audit_excel_bytes = create_audit_report_excel_bytes(filtered_df)
                         st.download_button(
-                            label="💾 AI 오탈자 검증 리포트 엑셀 다운로드 (.xlsx)",
+                            label=f"💾 {excel_out_fname} 다운로드 (.xlsx)",
                             data=audit_excel_bytes,
-                            file_name="생기부_AI_오탈자_및_지침검증_리포트.xlsx",
+                            file_name=excel_out_fname,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
                     with col_dl2:
                         audit_pdf_bytes = create_audit_report_pdf_bytes(filtered_df)
                         st.download_button(
-                            label="📄 AI 오탈자 검증 리포트 PDF 다운로드 (.pdf)",
+                            label=f"📄 {pdf_out_fname} 다운로드 (.pdf)",
                             data=audit_pdf_bytes,
-                            file_name="생기부_AI_오탈자_및_지침검증_리포트.pdf",
+                            file_name=pdf_out_fname,
                             mime="application/pdf",
                             use_container_width=True
                         )
@@ -1492,18 +1503,24 @@ def main():
 
         if available_exports:
             audit_df = st.session_state.get('llm_audit_results')
-            
+            file_names = st.session_state['data_store'].get('file_names', {})
+            base_names = [os.path.splitext(file_names[t])[0] for t in available_exports.keys() if t in file_names]
+            prefix = f"{'_'.join(base_names)}" if base_names else "통합데이터"
+
+            audit_out_fname = f"생기부_검증_{prefix}.xlsx"
+            data_out_fname = f"생기부_정제_{prefix}.xlsx"
+
             col_d1, col_d2 = st.columns(2)
             
             with col_d1:
                 st.markdown("### 🚨 AI 오탈자 & 지침 검증 리포트")
                 if audit_df is not None:
-                    st.write(f"총 {len(audit_df)}건의 검출 항목이 포함된 8개 컬럼 규격 엑셀 리포트입니다.")
+                    st.write(f"총 {len(audit_df)}건의 검출 항목이 포함된 엑셀 리포트입니다.")
                     audit_bytes = create_audit_report_excel_bytes(audit_df)
                     st.download_button(
-                        label="💾 AI 오탈자 검증 리포트 다운로드 (.xlsx)",
+                        label=f"💾 {audit_out_fname} 다운로드 (.xlsx)",
                         data=audit_bytes,
-                        file_name="생기부_AI_오탈자_및_지침검증_리포트.xlsx",
+                        file_name=audit_out_fname,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
@@ -1512,12 +1529,12 @@ def main():
 
             with col_d2:
                 st.markdown("### 📄 정제 완료 통합 생기부 데이터")
-                st.write(f"시트: {', '.join(available_exports.keys())}")
+                st.write(f"포함 시트: {', '.join(available_exports.keys())}")
                 excel_bytes = create_formatted_excel_bytes(available_exports)
                 st.download_button(
-                    label="💾 정제 완료 데이터 다운로드 (.xlsx)",
+                    label=f"💾 {data_out_fname} 다운로드 (.xlsx)",
                     data=excel_bytes,
-                    file_name="생기부_정제_데이터_통합.xlsx",
+                    file_name=data_out_fname,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
