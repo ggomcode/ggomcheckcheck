@@ -629,7 +629,7 @@ def smart_concatenate_text(base_text: str, append_text: str) -> str:
 
     # 2. 줄 바꿈으로 인해 단어가 잘린 경우 (어미, 조사, 어근 결합 시 띄어쓰기 없이 붙임)
     # 예: '추진' + '함.', '실' + '천함.', '상대' + '성을 분석함.' -> '상대성을 분석함.'
-    if re.match(r'^(함|음|슴|했음|였음|하며|하여|하고|단|적|성|율|력|을|를|이|가|은|는|에|에서|의|과|와|으로|로|에게|한테|도|만|까지|부터)', append_clean):
+    if re.match(r'^(함|음|슴|했음|였음|하며|하여|하고|단|적|성|율|력|을|를|이|가|은|는|에|에서|의|과|와|으로|로|에게|한테|도|만|까지|부터|동|동에서는|활동)', append_clean):
         return base_clean + append_clean
 
     # 3. 완성된 단어와 단어 사이 연결 시 띄어쓰기 적용
@@ -889,7 +889,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                 active_name = name_str
                 if hours_val:
                     active_hours = hours_val
-                if area_val and area_val.lower() != 'none':
+                if area_val and area_val.lower() != 'none' and area_val not in ['영역', '활동영역', '창의적체험활동', '구분', '세부']:
                     active_area = area_val
                 if grade_val and grade_val.lower() != 'none':
                     active_grade = grade_val
@@ -1021,7 +1021,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*:', curr_text)
         )
 
-        if same_st and same_ar and not ends_with_punct and not is_new_header:
+        if same_st and same_ar and not is_new_header:
             merged = smart_concatenate_text(last_text, curr_text)
             last_r[content_col] = merged
             last_r['_merged_count'] += 1 + r.get('_merged_count', 0)
