@@ -830,6 +830,11 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             if not target_num or not target_name:
                 continue
 
+            # NEIS 진로활동 '희망분야' 헤더 행 제외 처리 (특기사항 서술문이 아니므로 원문에서 제외)
+            all_row_str = " ".join([str(v) for v in row_dict.values() if pd.notna(v)])
+            if re.search(r'희망\s*분야', all_row_str):
+                continue
+
             if not content_val:
                 continue
 
