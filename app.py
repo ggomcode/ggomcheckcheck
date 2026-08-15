@@ -679,17 +679,27 @@ def main():
     with st.sidebar:
         st.header("🤖 AI (LLM) API 설정")
         
-        provider = st.selectbox("AI 모델 선택", ["Gemini", "OpenAI", "Claude"])
+        provider = st.selectbox("AI 프로바이더 선택", ["Gemini", "OpenAI", "Claude"])
         
+        if provider == "Gemini":
+            gemini_model = st.selectbox(
+                "Gemini 모델 선택 (무료티어 추천)",
+                ["gemini-3.1-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"],
+                help="gemini-3.1-flash-lite는 무료 티어(Free Tier)에서 쿼터 제한 없이 가장 빠르고 효율적입니다."
+            )
+            model_name = gemini_model
+        elif provider == "OpenAI":
+            model_name = "gpt-4o-mini"
+        else:
+            model_name = "claude-3-5-haiku-20241022"
+
         default_api_key = os.getenv("GEMINI_API_KEY", "") if provider == "Gemini" else os.getenv("OPENAI_API_KEY", "")
         api_key = st.text_input(
-            f"{provider} API Key 입력",
+            f"{provider} API Key 입력 (무료티어)",
             value=default_api_key,
             type="password",
-            help="AI 정밀 오탈자 검증을 위해 API 키를 입력해 주세요."
+            help="Google AI Studio에서 발급받은 무료 API Key를 입력해 주세요."
         )
-
-        model_name = "gemini-3.1-flash-lite" if provider == "Gemini" else ("gpt-4o-mini" if provider == "OpenAI" else "claude-3-5-haiku-20241022")
 
         st.markdown("---")
         st.header("📂 엑셀 파일 업로드")
