@@ -695,11 +695,44 @@ def main():
 
         default_api_key = os.getenv("GEMINI_API_KEY", "") if provider == "Gemini" else os.getenv("OPENAI_API_KEY", "")
         api_key = st.text_input(
-            f"{provider} API Key 입력 (무료티어)",
+            f"{provider} API Key 입력",
             value=default_api_key,
             type="password",
-            help="Google AI Studio에서 발급받은 무료 API Key를 입력해 주세요."
+            help="Google AI Studio / OpenAI / Anthropic에서 발급받은 개인 API Key를 입력해 주세요."
         )
+
+        # Provider별 API Key 발급가이드 (ggomcheck 가이드 기반)
+        with st.expander(f"💡 {provider} API Key 발급 방법 안내"):
+            if provider == "Gemini":
+                st.markdown("""
+                **Google Gemini API Key (무료)**
+                1. [Google AI Studio](https://aistudio.google.com/)에 접속하여 구글 계정으로 로그인합니다.
+                2. 왼쪽 메뉴 **Dashboard ➔ API 키** 순으로 이동합니다.
+                3. **[Create API key]** 버튼 또는 기존 키 오른쪽의 **[키 복사]** 아이콘을 클릭합니다.
+                4. 복사된 키를 위의 입력란에 붙여넣습니다.
+                
+                * 💡 `gemini-3.1-flash-lite` 모델은 분당 15회/일 1,500회까지 **100% 무료(Free Tier)**로 사용 가능합니다.
+                """)
+            elif provider == "OpenAI":
+                st.markdown("""
+                **OpenAI ChatGPT API Key**
+                1. [OpenAI Platform](https://platform.openai.com/)에 로그인합니다.
+                2. 좌측 메뉴 **API Keys**로 이동합니다.
+                3. **[Create new secret key]**를 클릭하여 키를 생성 후 복사합니다.
+                
+                * ⚠️ OpenAI API는 계정에 최소 $5 이상의 크레딧 충전(Billing)이 필요합니다.
+                """)
+            else:
+                st.markdown("""
+                **Anthropic Claude API Key**
+                1. [Anthropic Console](https://console.anthropic.com/)에 접속합니다.
+                2. 대시보드 **API Keys ➔ Create Key**를 클릭합니다.
+                3. 생성된 키를 안전하게 복사하여 붙여넣습니다.
+                
+                * ⚠️ Claude API는 소액 결제 크레딧 충전 후 사용할 수 있습니다.
+                """)
+
+        st.caption("🔒 입력한 API 키는 서버에 저장되지 않고 본인 세션에만 임시 유지됩니다.")
 
         st.markdown("---")
         st.header("📂 엑셀 파일 업로드")
