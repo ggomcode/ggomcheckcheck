@@ -809,6 +809,8 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
     current_student_record = None
     active_num = ""
     active_name = ""
+    active_hours = ""
+    active_area = ""
 
     for idx, row in df.iterrows():
         try:
@@ -823,6 +825,12 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             area_val = str(row[area_col]).strip() if area_col and area_col in row and pd.notna(row[area_col]) else ""
             grade_val = str(row[grade_col]).strip().replace(".0", "") if grade_col and grade_col in row and pd.notna(row[grade_col]) else ""
 
+            hours_val = ""
+            for h_col in ['시간', '시 간', '이수시간']:
+                if h_col in row and pd.notna(row[h_col]) and str(row[h_col]).strip() not in ['', 'nan', 'NaN', 'None']:
+                    hours_val = str(row[h_col]).strip().replace(".0", "")
+                    break
+
             is_num_empty = pd.isna(num_val) or str(num_val).strip() in ['', 'nan', 'NaN', 'None']
             is_name_empty = pd.isna(name_val) or str(name_val).strip() in ['', 'nan', 'NaN', 'None']
 
@@ -832,6 +840,12 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             if num_str and name_str:
                 active_num = num_str
                 active_name = name_str
+                if hours_val:
+                    active_hours = hours_val
+                if area_val:
+                    active_area = area_val
+            elif hours_val:
+                active_hours = hours_val
 
             target_num = num_str if num_str else active_num
             target_name = name_str if name_str else active_name
@@ -852,7 +866,8 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             curr_area = current_student_record.get(area_col, '') if (current_student_record and area_col) else ''
 
             is_same_student = (current_student_record is not None and curr_num == target_num and curr_name == target_name)
-            is_same_area = (not area_col or not area_val or not curr_area or area_val == curr_area or area_val in curr_area or curr_area in area_val)
+            effective_area = area_val if area_val else active_area
+            is_same_area = (not area_col or not effective_area or not curr_area or effective_area == curr_area or effective_area in curr_area or curr_area in effective_area)
 
             is_new_activity_start = (
                 re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', content_val) or 
@@ -884,9 +899,15 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             new_record[name_col] = target_name
             new_record[content_col] = content_val
             if area_col:
-                new_record[area_col] = area_val
+                new_record[area_col] = area_val if area_val else active_area
             if grade_col and grade_val:
                 new_record[grade_col] = (grade_val + "학년") if not grade_val.endswith("학년") else grade_val
+
+            # 시간(이수시간) 컬럼 보전 및 계승
+            for h_col in ['시간', '시 간', '이수시간']:
+                if h_col in df.columns or h_col in new_record:
+                    if pd.isna(new_record.get(h_col)) or str(new_record.get(h_col, '')).strip() in ['', 'nan', 'NaN', 'None']:
+                        new_record[h_col] = active_hours
 
             new_record['_original_excel_row'] = idx + 2
             new_record['_merged_count'] = 0
