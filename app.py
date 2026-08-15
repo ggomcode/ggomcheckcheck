@@ -1421,6 +1421,142 @@ def create_audit_report_pdf_bytes(audit_df: pd.DataFrame) -> bytes:
     return buffer.getvalue()
 
 
+def create_refined_original_pdf_bytes(data_store: dict) -> bytes:
+    """
+    페이지 나눔/인쇄 경계 결합이 완료된 정제 원본 데이터(세특, 창체, 행특)를
+    ReportLab 기반의 A4 가로 인쇄형 PDF 파일로 변환하여 바이트로 반환합니다.
+    """
+    font_name = register_korean_font()
+    buffer = io.BytesIO()
+    margin_pt = 42.52
+
+    available_keys = [k for k in ['창체', '세특', '행특'] if data_store.get(k) is not None]
+    cat_str = " · ".join(available_keys) if available_keys else "원본"
+    
+    file_names = data_store.get('file_names', {})
+    base_names = [os.path.splitext(file_names[t])[0] for t in available_keys if t in file_names]
+    sub_title_file = f" ({', '.join(base_names)})" if base_names else ""
+
+    doc_title_text = f"학교생활기록부 정제 원본 리포트 - {cat_str}{sub_title_file}"
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        leftMargin=margin_pt,
+        rightMargin=margin_pt,
+        topMargin=margin_pt,
+        bottomMargin=margin_pt + 15
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'PDFDocTitleRefined',
+        parent=styles['Heading1'],
+        fontName=font_name,
+        fontSize=13,
+        leading=16,
+        textColor=colors.HexColor("#0F172A"),
+        spaceAfter=8
+    )
+    cat_header_style = ParagraphStyle(
+        'PDFCatHeaderStyle',
+        parent=styles['Heading2'],
+        fontName=font_name,
+        fontSize=11,
+        leading=14,
+        textColor=colors.HexColor("#1E3A8A"),
+        spaceBefore=10,
+        spaceAfter=6
+    )
+    cell_style = ParagraphStyle(
+        'PDFCellTextRefined',
+        fontName=font_name,
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#1F2937")
+    )
+    header_cell_style = ParagraphStyle(
+        'PDFHeaderCellTextRefined',
+        fontName=font_name,
+        fontSize=8,
+        leading=10,
+        textColor=colors.white,
+        alignment=1
+    )
+
+    elements = []
+    elements.append(Paragraph(doc_title_text, title_style))
+    elements.append(Spacer(1, 4))
+
+    for key in ['창체', '세특', '행특']:
+        if key not in data_store or data_store[key] is None:
+            continue
+        
+        item = data_store[key]
+        if not isinstance(item, dict) or 'df' not in item:
+            continue
+        df = item['df']
+        c_map = item['col_map']
+        if df is None or df.empty:
+            continue
+
+        elements.append(Paragraph(f"■ [{key}] 정제 완료 원본 데이터 (총 {len(df)}건)", cat_header_style))
+        elements.append(Spacer(1, 4))
+
+        num_c = c_map['num_col']
+        name_c = c_map['name_col']
+        content_c = c_map['content_col']
+        area_c = c_map.get('area_col')
+
+        headers = ["학번", "이름", "구분/과목", "정제 결합된 원문 내용", "글자수"]
+        col_widths = [45, 45, 90, 530, 46.85]
+
+        table_data = [[Paragraph(h, header_cell_style) for h in headers]]
+
+        for _, r in df.iterrows():
+            num_val = str(r.get(num_c, '')).strip()
+            name_val = str(r.get(name_c, '')).strip()
+            
+            if key == "세특" and '과목명' in r:
+                sub_val = str(r['과목명']).strip()
+            elif key == "창체" and '세부' in r:
+                sub_val = str(r['세부']).strip()
+            elif area_c and area_c in r and pd.notna(r[area_c]):
+                sub_val = str(r[area_c]).strip()
+            else:
+                sub_val = key
+
+            content_text = str(r.get(content_c, '')).strip()
+            char_len = len(content_text)
+
+            r_data = [
+                Paragraph(num_val, cell_style),
+                Paragraph(name_val, cell_style),
+                Paragraph(sub_val, cell_style),
+                Paragraph(content_text, cell_style),
+                Paragraph(f"{char_len}자", cell_style),
+            ]
+            table_data.append(r_data)
+
+        t = Table(table_data, colWidths=col_widths, repeatRows=1)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+            ('LEFTPADDING', (0, 0), (-1, -1), 3),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+        ]))
+        elements.append(t)
+        elements.append(Spacer(1, 12))
+
+    doc.build(elements, canvasmaker=NumberedCanvas)
+    return buffer.getvalue()
+
+
+
 def create_formatted_excel_bytes(data_dict: dict) -> bytes:
     output = io.BytesIO()
     wb = openpyxl.Workbook()
@@ -1886,15 +2022,27 @@ def main():
                     with c_dl4:
                         available_exports = {t: st.session_state['data_store'][t]['df'] for t in available_types if t in st.session_state['data_store']}
                         st.markdown(f"#### 정제 원본 데이터 ({', '.join(available_exports.keys())})")
-                        st.download_button(
-                            "엑셀 (.xlsx)",
-                            data=create_formatted_excel_bytes(available_exports),
-                            file_name=f"{prefix}_정제원본.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="dl_clean_excel",
-                            use_container_width=True,
-                            disabled=not available_exports
-                        )
+                        b_clean1, b_clean2 = st.columns(2)
+                        with b_clean1:
+                            st.download_button(
+                                "엑셀 (.xlsx)",
+                                data=create_formatted_excel_bytes(available_exports),
+                                file_name=f"{prefix}_정제원본.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="dl_clean_excel",
+                                use_container_width=True,
+                                disabled=not available_exports
+                            )
+                        with b_clean2:
+                            st.download_button(
+                                "PDF (.pdf)",
+                                data=create_refined_original_pdf_bytes(st.session_state['data_store']),
+                                file_name=f"{prefix}_정제원본.pdf",
+                                mime="application/pdf",
+                                key="dl_clean_pdf",
+                                use_container_width=True,
+                                disabled=not available_exports
+                            )
 
     # --------------------------------------------------------------------------
     # MODE 2: 학생별 통합 조회 (관리 메뉴 모드)
@@ -2024,9 +2172,33 @@ def main():
                 st.success("페이지 나눔으로 인해 밀려 내려온 행이 없습니다. (클린 데이터)")
 
             st.markdown("---")
-            st.markdown("### 정제 완료 데이터 테이블 프리뷰")
+            st.markdown("### 정제 완료 데이터 테이블 프리뷰 & 내보내기")
             display_df = clean_display_dataframe(refined_df)
-            st.dataframe(display_df, use_container_width=True, height=400)
+            st.dataframe(display_df, use_container_width=True, height=380)
+
+            col_m3_dl1, col_m3_dl2 = st.columns(2)
+            with col_m3_dl1:
+                st.download_button(
+                    f"[{inspect_type}] 정제 원문 엑셀 저장 (.xlsx)",
+                    data=create_formatted_excel_bytes({inspect_type: refined_df}),
+                    file_name=f"{inspect_type}_정제원본.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"dl_m3_excel_{inspect_type}",
+                    use_container_width=True
+                )
+            with col_m3_dl2:
+                single_store = {
+                    inspect_type: st.session_state['data_store'][inspect_type],
+                    'file_names': st.session_state['data_store'].get('file_names', {})
+                }
+                st.download_button(
+                    f"[{inspect_type}] 정제 원문 PDF 저장 (.pdf)",
+                    data=create_refined_original_pdf_bytes(single_store),
+                    file_name=f"{inspect_type}_정제원본.pdf",
+                    mime="application/pdf",
+                    key=f"dl_m3_pdf_{inspect_type}",
+                    use_container_width=True
+                )
         else:
             st.info(f"[{inspect_type}] 파일이 업로드되지 않았습니다.")
 
