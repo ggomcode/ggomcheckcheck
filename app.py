@@ -640,7 +640,7 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
     content_col = col_map['content_col']
     extra_cols = col_map['extra_cols']
 
-    # (1학기)/(2학기)로 시작하거나 문두/줄바꿈 직후의 과목명: (20바이트 이하)
+    # (1학기)/(2학기)로 시작하거나 문두/줄바꿈 직후의 과목명: (30바이트 이하)
     pattern = r'(?:^|\n|\r\n)\s*(((?:\([12]\s*학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]+))\s*[:：]'
     
     unfolded_rows = []
@@ -668,9 +668,9 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
             matches = []
             for m in re.finditer(pattern, raw_text):
                 full_hdr = m.group(1).strip()
-                # 20바이트 이하 한도 검사 (EUC-KR 기준 한글 1자=2바이트)
+                # 30바이트 이하 한도 검사 (EUC-KR 기준 한글 1자=2바이트)
                 byte_len = len(full_hdr.encode('euc-kr', errors='ignore'))
-                if byte_len <= 20 and len(full_hdr) >= 1:
+                if byte_len <= 30 and len(full_hdr) >= 1:
                     matches.append({
                         'start_full': m.start(),
                         'start_hdr': m.start(1),
