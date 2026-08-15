@@ -624,6 +624,14 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 # 6. 세특 과목명 및 학기 정보 자동 분리 로직 (Regex Engine)
 # ==============================================================================
 def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
+    """
+    세특 텍스트에서 과목명 및 세부 내용을 지능적으로 자동 분리합니다.
+    [사용자 지침 규격]
+    1. (1학기) 또는 (2학기)로 시작하여 ':' 전까지, 또는 (1학기/2학기) 없이 텍스트 시작/줄바꿈 문두에서 시작하여 ':' 전까지를 과목명으로 판단합니다.
+    2. 과목명(학기표시 포함)의 길이는 최대 20바이트(EUC-KR 20바이트 / 한글 약 8~10자)를 초과할 수 없습니다.
+    3. '공통/기타', '통합/기타' 같은 임의의 가짜 과목명을 절대로 생성하지 않습니다.
+    4. 과목 구분 콜론이 없는 경우 엑셀 원본의 과목명 컬럼 또는 '세부능력및특기사항'을 유지합니다.
+    """
     if df.empty:
         return df
 
@@ -632,14 +640,16 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
     content_col = col_map['content_col']
     extra_cols = col_map['extra_cols']
 
-    pattern = r'((?:\([12]학기\))?[가-힣·/]+):'
+    # (1학기)/(2학기)로 시작하거나 문두/줄바꿈 직후의 과목명: (20바이트 이하)
+    pattern = r'(?:^|\n|\r\n)\s*(((?:\([12]\s*학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]+))\s*[:：]'
+    
     unfolded_rows = []
 
     for _, row in df.iterrows():
         try:
             raw_text = str(row[content_col]) if pd.notna(row[content_col]) else ""
-            matches = list(re.finditer(pattern, raw_text))
-
+            raw_text = raw_text.strip()
+            
             base_info = {
                 num_col: row[num_col],
                 name_col: row[name_col],
@@ -648,33 +658,47 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
                 if c not in ['_merged_count', '_merged_rows', '_original_excel_row']:
                     base_info[c] = row[c]
 
+            row_subj = str(row.get('과목명', row.get('과목', ''))).strip()
+            if not row_subj or row_subj == 'nan':
+                row_subj = '세부능력및특기사항'
+
+            if not raw_text:
+                continue
+
+            matches = []
+            for m in re.finditer(pattern, raw_text):
+                full_hdr = m.group(1).strip()
+                # 20바이트 이하 한도 검사 (EUC-KR 기준 한글 1자=2바이트)
+                byte_len = len(full_hdr.encode('euc-kr', errors='ignore'))
+                if byte_len <= 20 and len(full_hdr) >= 1:
+                    matches.append({
+                        'start_full': m.start(),
+                        'start_hdr': m.start(1),
+                        'end_hdr': m.end(),
+                        'hdr_text': full_hdr
+                    })
+
+            # 매칭 결과가 없으면 임의의 가짜 과목명(공통/기타)을 절대 만들지 않고 원본 과목명 유지
             if not matches:
                 item = base_info.copy()
-                item['과목명'] = '통합/기타'
-                item['내용'] = raw_text.strip()
-                item['글자수'] = len(raw_text.strip())
+                item['과목명'] = row_subj
+                item['내용'] = raw_text
+                item['글자수'] = len(raw_text)
                 unfolded_rows.append(item)
                 continue
 
-            if matches[0].start() > 0:
-                prefix_text = raw_text[:matches[0].start()].strip()
-                if prefix_text:
-                    item = base_info.copy()
-                    item['과목명'] = '공통/기타'
-                    item['내용'] = prefix_text
-                    item['글자수'] = len(prefix_text)
-                    unfolded_rows.append(item)
-
             for i in range(len(matches)):
-                subject_name = matches[i].group(1).strip()
-                start_pos = matches[i].end()
-                end_pos = matches[i+1].start() if i + 1 < len(matches) else len(raw_text)
-                subject_content = raw_text[start_pos:end_pos].strip()
+                m_curr = matches[i]
+                start_content = m_curr['end_hdr']
+                end_content = matches[i+1]['start_full'] if i + 1 < len(matches) else len(raw_text)
                 
+                content_snippet = raw_text[start_content:end_content].strip()
+                subj_name = m_curr['hdr_text']
+
                 item = base_info.copy()
-                item['과목명'] = subject_name
-                item['내용'] = subject_content
-                item['글자수'] = len(subject_content)
+                item['과목명'] = subj_name
+                item['내용'] = content_snippet
+                item['글자수'] = len(content_snippet)
                 unfolded_rows.append(item)
 
         except Exception as e:
