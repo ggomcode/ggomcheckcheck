@@ -1332,6 +1332,7 @@ def main():
                             data=audit_excel_bytes,
                             file_name=excel_out_fname,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="dl_tab1_audit_excel",
                             use_container_width=True
                         )
                     with col_dl2:
@@ -1341,6 +1342,7 @@ def main():
                             data=audit_pdf_bytes,
                             file_name=pdf_out_fname,
                             mime="application/pdf",
+                            key="dl_tab1_audit_pdf",
                             use_container_width=True
                         )
             else:
@@ -1557,6 +1559,7 @@ def main():
                         data=audit_bytes,
                         file_name=audit_out_fname,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="dl_tab5_audit_excel",
                         use_container_width=True
                     )
                 else:
@@ -1571,6 +1574,7 @@ def main():
                     data=excel_bytes,
                     file_name=data_out_fname,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_tab5_clean_excel",
                     use_container_width=True
                 )
         else:
