@@ -401,8 +401,8 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 6. 수정 이유/근거 작성 시 지침 번호 제외:
    - [필수 규칙] 'reason(수정해야하는 이유나 근거)' 항목을 작성할 때는 개별 지침의 조항 번호(예: '지침 2.1.4', '지침 2.3', '제3조', '3.1.2' 등)를 절대로 적지 마십시오. 번호 없이 맞춤법, 띄어쓰기, 어미 교정, 불필요 특수문자 제거 등 구체적인 수정 이유만 명확히 설명하십시오.
 7. 창체 영역별 이수시간 기재 및 0시간 점검 규칙:
-   - [중요 규칙] 16시간, 17시간, 34시간 등 정상적인 이수시간(0이 아닌 이수시간)은 지침에 부합하는 정답이므로 절대로 오류나 검증 항목으로 감지하지 마십시오.
-   - [0시간 점검만 검출] 영역별 이수시간이 오직 '0시간'으로 기록되어 있거나 텍스트 내 '(0시간)'이 작성된 경우에만 '수정 권장'으로 감지하십시오. 정상 이수시간(예: 16시간, 17시간)에 대해서는 절대로 0시간 관련 검출 메시지나 동일 단어 교정건을 내보내지 마십시오.
+   - [엄격 규칙] 창체 영역별 이수시간 검증은 오직 이수시간이 '0시간'인 경우(또는 텍스트 내 '(0시간)'이 기재된 경우)에만 '수정 권장'으로 검출하십시오.
+   - [필수 규칙] 16시간, 17시간 등 정상 이수시간이나 이수시간 빈칸/미기재에 대해서는 절대로 이수시간 관련 검출 메시지나 오류를 내보내지 마십시오.
 8. 창체 세부 영역 단일화 및 명확화:
    - [필수 규칙] 창의적 체험활동의 'sub_category(세부)' 항목은 기록 내용을 분석하여 반드시 '자율활동', '동아리활동', '진로활동' 중 명확하게 1개 영역만 지정해야 합니다. 절대로 '자율/동아리/진로'처럼 여러 개를 슬래시로 묶어서 표기하지 마십시오.
 9. 기업/브랜드 알파벳 1글자 블라인드 표기 허용 규칙:
@@ -539,9 +539,9 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
         if orig == sugg:
             continue
 
-        # 3. Skip if original_text is a valid non-zero hour (e.g. '16시간', '17시간', '34시간', '16', '17')
-        if re.match(r'^\d+\s*시간$', orig) or (orig.isdigit() and orig != '0'):
-            if '0시간' not in orig and '0시간' not in reason:
+        # 3. 이수시간 관련 점검은 오직 '0시간'인 경우만 검출 (사용자 지침: 이수시간 오류는 0시간일때만 체크해)
+        if '이수시간' in orig or '이수시간' in sugg or '이수시간' in reason or re.match(r'^\d+\s*시간$', orig) or (orig.isdigit() and orig != '0'):
+            if '0시간' not in orig and '0시간' not in reason and orig != '0':
                 continue
 
         # 4. Skip if original_text is plain '희망분야' (without 공란 tag)
@@ -1216,6 +1216,58 @@ def auto_detect_current_grade(data_store: dict) -> int:
     return max(max_detected, 3)
 
 
+def auto_detect_class_number(data_store: dict) -> int:
+    """
+    창체(셀 A3), 세특(셀 A4), 행특(셀 A3) 등 각 영역별 원본 엑셀 지정 셀 위치를 최우선 정밀 검제하여
+    반 번호(예: 1반, 2반 -> 302XX 학번)를 100% 오차 없이 자동 감지합니다.
+    """
+    for t_key in ["창체", "세특", "행특"]:
+        if t_key not in data_store or data_store[t_key] is None:
+            continue
+        item = data_store[t_key]
+        df = item['df']
+        c_map = item['col_map']
+
+        # 1. 5자리 학번이 엑셀 본문에 이미 존재하는 경우 (예: 30215 -> 2반)
+        num_c = c_map.get('num_col')
+        if num_c and num_c in df.columns:
+            num_vals = [re.sub(r'\D', '', str(v)) for v in df[num_c].values if pd.notna(v)]
+            five_digit_ids = [v for v in num_vals if len(v) == 5]
+            if five_digit_ids:
+                ban_digits = [int(v[1:3]) for v in five_digit_ids if 1 <= int(v[1:3]) <= 30]
+                if ban_digits:
+                    return ban_digits[0]
+
+        # 2. raw_df 원본 엑셀 지정 셀 위치 (세특: A4셀, 창체/행특: A3셀) 최우선 점검
+        target_df = item.get('raw_df', df)
+        specific_cell_str = ""
+        try:
+            if t_key == "세특" and len(target_df) >= 4:
+                specific_cell_str = str(target_df.iloc[3, 0])
+            elif len(target_df) >= 3:
+                specific_cell_str = str(target_df.iloc[2, 0])
+        except Exception:
+            pass
+
+        if specific_cell_str and pd.notna(specific_cell_str):
+            m_spec = re.search(r'\d+\s*학년\s*(\d+)\s*반', str(specific_cell_str))
+            if m_spec:
+                return int(m_spec.group(1))
+
+        # 3. 원본 헤더 영역 전체 셀 텍스트 샘플에서 'X학년 Y반' 또는 'Y반' 패턴 감지
+        sample_str = " ".join([str(v) for v in target_df.astype(str).values.flatten()[:500] if pd.notna(v)])
+        
+        m_ban = re.search(r'\d+\s*학년\s*(\d+)\s*반', sample_str)
+        if m_ban:
+            return int(m_ban.group(1))
+
+        m_ban2 = re.search(r'(\d+)\s*반', sample_str)
+        if m_ban2:
+            return int(m_ban2.group(1))
+
+    return 1
+
+
 # ==============================================================================
 # 7. 생기부 레코드 리스트 패킹 헬퍼
 # ==============================================================================
@@ -1225,6 +1277,8 @@ def prepare_records_for_llm(data_store: dict, target_current_grade: int = None) 
     """
     if target_current_grade is None:
         target_current_grade = auto_detect_current_grade(data_store)
+
+    ban_num = auto_detect_class_number(data_store)
 
     student_max_grades = {}
     raw_records = []
@@ -1244,7 +1298,7 @@ def prepare_records_for_llm(data_store: dict, target_current_grade: int = None) 
 
             text_content = str(row.get('내용', row.get(content_c, '')))
             if t_key == "창체":
-                raw_sub = str(row.get('영역', row.get('활동영역', ''))).strip()
+                raw_sub = str(row.get('sub_category', row.get('영역', row.get('활동영역', '')))).strip()
                 sub_cat = get_changche_area_from_cell(raw_sub, text_content)
             elif t_key == "세특":
                 sub_cat = str(row.get('과목명', row.get('과목', '과목미지정'))).strip()
@@ -1289,9 +1343,9 @@ def prepare_records_for_llm(data_store: dict, target_current_grade: int = None) 
             num_part = num_str[3:]
             current_student_id = f"{max_g}{ban_part}{num_part}"
         elif len(num_str) in [1, 2]:
-            current_student_id = f"{max_g}01{int(num_str):02d}"
+            current_student_id = f"{max_g}{ban_num:02d}{int(num_str):02d}"
         else:
-            current_student_id = f"{max_g}{num_str.zfill(4)[-4:]}"
+            current_student_id = f"{max_g}{ban_num:02d}{num_str.zfill(2)[-2:]}"
 
         records_payload.append({
             "학번": current_student_id,
@@ -2034,23 +2088,27 @@ def main():
                             
                             audit_rows = []
                             for item in raw_findings:
-                                cat_item = str(item.get("category", "세특")).strip()
-                                sub_cat_item = str(item.get("sub_category", "")).strip()
-                                orig_text_item = str(item.get("original_text", "")).strip()
+                                cat_item = str(item.get("category", item.get("구분", "창체"))).strip()
+                                sub_cat_item = str(item.get("sub_category", item.get("세부", ""))).strip()
+                                orig_text_item = str(item.get("original_text", item.get("수정전", ""))).strip()
+                                st_id = str(item.get("student_id", item.get("학번", "00000"))).strip()
 
-                                if cat_item in ["창체", "창의적체험활동"] or "/" in sub_cat_item or "자율" in sub_cat_item or "동아리" in sub_cat_item or "진로" in sub_cat_item:
+                                matched_payload = next((p for p in records_payload if p["학번"] == st_id or (orig_text_item and orig_text_item in p["기록텍스트"])), None)
+                                if matched_payload and matched_payload.get("세부"):
+                                    sub_cat_item = matched_payload["세부"]
+                                elif cat_item in ["창체", "창의적체험활동"] and (not sub_cat_item or sub_cat_item in ["창체", "창의적체험활동"]):
                                     sub_cat_item = get_changche_area_from_cell(sub_cat_item, orig_text_item)
 
                                 audit_rows.append({
-                                    "학번": item.get("student_id", "00000"),
-                                    "이름": item.get("student_name", ""),
+                                    "학번": st_id,
+                                    "이름": item.get("student_name", item.get("이름", "")),
                                     "구분": cat_item,
-                                    "이수학년": item.get("taken_grade", "1학년"),
+                                    "이수학년": item.get("taken_grade", item.get("이수학년", "1학년")),
                                     "세부": sub_cat_item,
                                     "수정전": orig_text_item,
-                                    "수정 후": item.get("suggested_text", ""),
-                                    "수정해야하는 이유나 근거": item.get("reason", ""),
-                                    "수정구분": item.get("severity", "수정 필수")
+                                    "수정 후": item.get("suggested_text", item.get("수정 후", "")),
+                                    "수정해야하는 이유나 근거": item.get("reason", item.get("수정해야하는 이유나 근거", "")),
+                                    "수정구분": item.get("severity", item.get("수정구분", "수정 필수"))
                                 })
 
                             if audit_rows:
@@ -2059,9 +2117,11 @@ def main():
                                     "수정 필수": 1, "수정필수": 1,
                                     "수정 권장": 2, "수정 권고": 2, "수정권장": 2, "수정권고": 2
                                 }
+                                area_order_map = {"자율활동": 1, "동아리활동": 2, "진로활동": 3}
                                 res_df['_sev_rank'] = res_df['수정구분'].map(lambda x: sev_rank_map.get(str(x).strip(), 3))
-                                res_df = res_df.sort_values(by=['_sev_rank', '학번', '이름'], ascending=[True, True, True]).reset_index(drop=True)
-                                res_df = res_df.drop(columns=['_sev_rank'])
+                                res_df['_area_rank'] = res_df['세부'].map(lambda x: area_order_map.get(str(x).strip(), 4))
+                                res_df = res_df.sort_values(by=['학번', '_area_rank', '_sev_rank', '이름'], ascending=[True, True, True, True]).reset_index(drop=True)
+                                res_df = res_df.drop(columns=['_sev_rank', '_area_rank'])
                                 st.session_state['llm_audit_results'] = res_df
                             else:
                                 st.session_state['llm_audit_results'] = pd.DataFrame(columns=[
