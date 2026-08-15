@@ -665,12 +665,13 @@ def prepare_records_for_llm(data_store: dict) -> list:
             else:
                 sub_cat = "행동특성"
 
+            category_map = {"창체": "창체", "세특": "세특", "행특": "행발"}
             text_content = str(row.get('내용', row.get(content_c, '')))
             if text_content.strip():
                 records_payload.append({
                     "학번": student_id,
                     "이름": name_val,
-                    "구분": category_map[t_key],
+                    "구분": category_map.get(t_key, t_key),
                     "세부": sub_cat,
                     "기록텍스트": text_content
                 })
