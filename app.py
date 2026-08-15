@@ -533,24 +533,26 @@ def clean_text_content(text) -> str:
     return text_str.strip()
 
 
-def infer_changche_sub_cat(raw_sub: str, text_content: str) -> str:
-    s_clean = str(raw_sub).strip() if pd.notna(raw_sub) else ""
-    t_clean = str(text_content).strip() if pd.notna(text_content) else ""
+def get_changche_area_from_cell(area_cell, text_cell) -> str:
+    """
+    엑셀 셀에 입력된 영역명 컬럼 값 및 기재 텍스트 형태(예: 접두어/키워드)를
+    직접 분석하여 '자율활동', '동아리활동', '진로활동' 중 올바른 영역 1개를 추출합니다.
+    """
+    a_str = str(area_cell).strip() if pd.notna(area_cell) else ""
+    t_str = str(text_cell).strip() if pd.notna(text_cell) else ""
 
-    if s_clean and '/' not in s_clean and s_clean not in ['nan', 'NaN', 'None', '기타', '창체']:
-        if '자율' in s_clean:
-            return '자율활동'
-        if '동아리' in s_clean:
-            return '동아리활동'
-        if '진로' in s_clean:
-            return '진로활동'
-        return s_clean
-
-    if any(k in t_clean for k in ['동아리', '부원로서', '부원', '동아리활동', '자율동아리', '학술동아리']):
+    if '자율' in a_str:
+        return '자율활동'
+    if '동아리' in a_str:
         return '동아리활동'
-    if any(k in t_clean for k in ['진로', '직업', '전공', '진로탐색', '진로활동', '희망 직업', '희망분야']):
+    if '진로' in a_str:
         return '진로활동'
-    if any(k in t_clean for k in ['자율', '자율활동', '학급', '임원', '반장', '부반장', '1인1역', '주제탐구']):
+
+    if '동아리' in t_str or re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', t_str):
+        return '동아리활동'
+    if '진로' in t_str:
+        return '진로활동'
+    if '자율' in t_str:
         return '자율활동'
 
     return '자율활동'
@@ -1101,7 +1103,7 @@ def prepare_records_for_llm(data_store: dict, target_current_grade: int = None) 
             text_content = str(row.get('내용', row.get(content_c, '')))
             if t_key == "창체":
                 raw_sub = str(row.get('영역', row.get('활동영역', ''))).strip()
-                sub_cat = infer_changche_sub_cat(raw_sub, text_content)
+                sub_cat = get_changche_area_from_cell(raw_sub, text_content)
             elif t_key == "세특":
                 sub_cat = str(row.get('과목명', row.get('과목', '과목미지정'))).strip()
             else:
@@ -1717,7 +1719,7 @@ def main():
                                 orig_text_item = str(item.get("original_text", "")).strip()
 
                                 if cat_item in ["창체", "창의적체험활동"] or "/" in sub_cat_item or "자율" in sub_cat_item or "동아리" in sub_cat_item or "진로" in sub_cat_item:
-                                    sub_cat_item = infer_changche_sub_cat(sub_cat_item, orig_text_item)
+                                    sub_cat_item = get_changche_area_from_cell(sub_cat_item, orig_text_item)
 
                                 audit_rows.append({
                                     "학번": item.get("student_id", "00000"),
