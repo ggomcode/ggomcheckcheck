@@ -400,12 +400,14 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 6. 수정 이유/근거 작성 시 지침 번호 제외:
    - [필수 규칙] 'reason(수정해야하는 이유나 근거)' 항목을 작성할 때는 개별 지침의 조항 번호(예: '지침 2.1.4', '지침 2.3', '제3조', '3.1.2' 등)를 절대로 적지 마십시오. 번호 없이 맞춤법, 띄어쓰기, 어미 교정, 불필요 특수문자 제거 등 구체적인 수정 이유만 명확히 설명하십시오.
 7. 창체 영역별 이수시간 기재 및 0시간 점검 규칙:
-   - [중요 규칙] 창의적 체험활동(자율, 동아리, 진로활동 등)의 영역별 총 이수시간(예: '16시간', '34시간', '(16시간)')은 필수 기재 사항이므로 절대로 '소요시간/실적 기재 불가' 오류로 감지하지 마십시오.
-   - [0시간 점검] 영역별 이수시간이 '0시간'으로 기록되어 있거나 텍스트 내 '(0시간)'이 작성된 경우에는 출결 및 실제 이수시간 점검을 위해 '수정 권장'으로 감지하고 "창체 영역별 이수 시간이 0시간으로 기재되어 있으니 출결 및 실제 이수 시간을 확인하십시오"라는 안내 사유를 제시하십시오.
+   - [중요 규칙] 16시간, 17시간, 34시간 등 정상적인 이수시간(0이 아닌 이수시간)은 지침에 부합하는 정답이므로 절대로 오류나 검증 항목으로 감지하지 마십시오.
+   - [0시간 점검만 검출] 영역별 이수시간이 오직 '0시간'으로 기록되어 있거나 텍스트 내 '(0시간)'이 작성된 경우에만 '수정 권장'으로 감지하십시오. 정상 이수시간(예: 16시간, 17시간)에 대해서는 절대로 0시간 관련 검출 메시지나 동일 단어 교정건을 내보내지 마십시오.
 8. 창체 세부 영역 단일화 및 명확화:
    - [필수 규칙] 창의적 체험활동의 'sub_category(세부)' 항목은 기록 내용을 분석하여 반드시 '자율활동', '동아리활동', '진로활동' 중 명확하게 1개 영역만 지정해야 합니다. 절대로 '자율/동아리/진로'처럼 여러 개를 슬래시로 묶어서 표기하지 마십시오.
 9. 기업/브랜드 알파벳 1글자 블라인드 표기 허용 규칙:
    - [중요 규칙] 'E사', 'A사', 'B사', 'K사'처럼 기업명이나 상호명을 블라인드/익명화하기 위한 '알파벳 1글자+사(社)' 형태의 표기(예: 'E사', 'A사')는 정당한 익명화 기재 방식입니다. 1글자짜리 정식회사명이나 브랜드는 존재하지 않으므로 절대로 '상호명/기업 이니셜 사용' 오류로 감지하거나 지적하지 마십시오.
+10. 고등학교 정규 과목명 외 대학/전공 학술 분야명 허용 규칙:
+   - [필수 규칙] 고등학교 정규 교육과정 개설 과목명(예: '국어', '수학', '영어', '물리학Ⅰ', '화학' 등)이 아닌 대학 전공/학술 분야명 및 세부 학문 주제명(예: '소비자행동론', '경영학', '마케팅원론', '유전공학', '행정학', '국제정치학' 등)은 학생의 깊이 있는 탐구활동 주제로서 기재가 허용됩니다. 정규 고교 과목명이 아닌 대학 전공/학술 분야명(예: '소비자행동론')을 '과목명 기재 금지 위반'으로 절대로 오검출하거나 지적하지 마십시오.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【출력 형식 (JSON Schema)】
@@ -515,16 +517,36 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
                 parsed = json.loads(clean_json)
                 if isinstance(parsed, dict) and "results" in parsed:
                     all_results.extend(parsed["results"])
-                elif isinstance(parsed, list):
-                    all_results.extend(parsed)
             except Exception:
                 pass
+
+    if 'data_store' in st.session_state and 'hope_blank_records' in st.session_state['data_store']:
+        for hb in st.session_state['data_store']['hope_blank_records']:
+            all_results.append(hb)
 
     filtered_results = []
     for res_item in all_results:
         orig = str(res_item.get('original_text', '')).strip()
+        sugg = str(res_item.get('suggested_text', '')).strip()
+        reason = str(res_item.get('reason', '')).strip()
+
+        # 1. Skip single letter company initial (e.g. 'E사', 'A사', 'B사')
         if re.match(r'^[A-Za-z]사$', orig):
             continue
+
+        # 2. Skip if original_text and suggested_text are identical (no correction needed)
+        if orig == sugg:
+            continue
+
+        # 3. Skip if original_text is a valid non-zero hour (e.g. '16시간', '17시간', '34시간', '16', '17')
+        if re.match(r'^\d+\s*시간$', orig) or (orig.isdigit() and orig != '0'):
+            if '0시간' not in orig and '0시간' not in reason:
+                continue
+
+        # 4. Skip if original_text is plain '희망분야' (without 공란 tag)
+        if orig in ['희망분야', '희망 분야']:
+            continue
+
         filtered_results.append(res_item)
 
     return filtered_results
@@ -565,6 +587,23 @@ def get_changche_area_from_cell(area_cell, text_cell) -> str:
         return '자율활동'
 
     return '자율활동'
+
+
+def check_jinro_hope_field(row_dict: dict) -> tuple:
+    """
+    진로활동 영역에서 '희망분야' (Column F) 항목 및 학생이 기입한 실제 희망분야 내용 (Column G, 예: '작곡가', 'PD' 등)을 검사합니다.
+    Returns: (is_hope_row: bool, hope_value: str)
+    """
+    row_values = [str(v).strip() for v in row_dict.values() if pd.notna(v)]
+    for idx, val in enumerate(row_values):
+        if '희망분야' in val or '희망 분야' in val:
+            hope_val = ""
+            if idx + 1 < len(row_values):
+                candidate = row_values[idx + 1].strip()
+                if candidate and candidate.lower() not in ['nan', 'none', '희망분야', '희망 분야', '특기사항']:
+                    hope_val = candidate
+            return True, hope_val
+    return False, ""
 
 
 def smart_concatenate_text(base_text: str, append_text: str) -> str:
@@ -806,6 +845,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 
     refined_rows = []
     merge_logs = []
+    hope_blank_records = []
     current_student_record = None
     active_num = ""
     active_name = ""
@@ -853,9 +893,23 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             if not target_num or not target_name:
                 continue
 
-            # NEIS 진로활동 '희망분야' 헤더 행 제외 처리 (특기사항 서술문이 아니므로 원문에서 제외)
-            all_row_str = " ".join([str(v) for v in row_dict.values() if pd.notna(v)])
-            if re.search(r'희망\s*분야', all_row_str):
+            # NEIS 진로활동 '희망분야' (Column F) 및 학생 희망분야 내용 (Column G) 검사
+            is_hope_row, hope_val = check_jinro_hope_field(row_dict)
+            if is_hope_row:
+                # Column F가 '희망분야'이고 Column G(학생 희망분야)가 비어있는 경우에만 정밀 오류 기록
+                if not hope_val and target_num and target_name:
+                    hope_blank_records.append({
+                        "student_id": target_num,
+                        "student_name": target_name,
+                        "category": "창체",
+                        "taken_grade": (grade_val + "학년") if grade_val else "3학년",
+                        "sub_category": "진로활동",
+                        "original_text": "희망분야 (공란)",
+                        "suggested_text": "학생 희망분야 기입",
+                        "reason": "진로활동 희망분야가 공란으로 기재되어 있으니 학생의 희망분야를 확인하여 기입하십시오.",
+                        "severity": "수정 권장"
+                    })
+                # 희망분야 헤더 행은 서술문이 아니므로 원문 텍스트 추출에서는 제외
                 continue
 
             if not content_val:
@@ -961,7 +1015,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             final_refined_rows.append(r)
 
     refined_df = pd.DataFrame(final_refined_rows)
-    return refined_df, merge_logs
+    return refined_df, merge_logs, hope_blank_records
 
 
 # ==============================================================================
@@ -1177,8 +1231,8 @@ def prepare_records_for_llm(data_store: dict, target_current_grade: int = None) 
                     break
 
             category_map = {"창체": "창체", "세특": "세특", "행특": "행발"}
-            text_content = str(row.get('내용', row.get(content_c, '')))
-            if text_content.strip():
+            text_content = str(row.get('내용', row.get(content_c, ''))).strip()
+            if text_content and text_content not in ['희망분야', '희망 분야', '희망분야:']:
                 raw_records.append({
                     "num_str": num_str,
                     "name_val": name_val,
@@ -1797,8 +1851,12 @@ def main():
                         st.session_state['data_store']['file_names'][type_key] = uploaded_file.name
 
                         df_processed, col_map = detect_columns(raw_df)
-                        refined_df, logs = refine_student_records(df_processed, col_map)
+                        refined_df, logs, hope_blanks = refine_student_records(df_processed, col_map)
                         
+                        if 'hope_blank_records' not in st.session_state['data_store']:
+                            st.session_state['data_store']['hope_blank_records'] = []
+                        st.session_state['data_store']['hope_blank_records'].extend(hope_blanks)
+
                         if type_key == "세특":
                             final_df = split_subject_details(refined_df, col_map)
                         else:
