@@ -645,19 +645,20 @@ def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool
     num_val_str = str(row_dict.get(num_col, '')).replace(" ", "") if num_col else ""
     name_val_str = str(row_dict.get(name_col, '')).replace(" ", "") if name_col else ""
 
-    if re.search(r'<[가-힣\sㆍ·/]+>', num_val_str) or re.search(r'<[가-힣\sㆍ·/]+>', combined):
+    if re.search(r'<[가-힣\sㆍ·/]+>', num_val_str):
         return True
 
     if '번호' in num_val_str or '성명' in name_val_str or '번 호' in num_val_str or '성 명' in name_val_str:
         return True
-    if '영역' in combined and ('시간' in combined or '특기사항' in combined):
+
+    if len(combined) < 40 and '영역' in combined and ('시간' in combined or '특기사항' in combined):
         return True
-    if '창의적체험활동상황' in combined:
+    if len(combined) < 40 and '창의적체험활동상황' in combined:
         return True
 
     if '포곡고등학교' in combined or '사용자명' in combined or '페이지' in combined:
         return True
-    if re.search(r'\d+/\d+\.?\d*', combined) or re.search(r'\d+학년\d+반', combined):
+    if len(combined) < 40 and (re.search(r'^\s*\d+/\d+\.?\d*\s*$', combined) or re.search(r'\d+학년\d+반', combined)):
         return True
 
     return False
@@ -851,6 +852,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
     active_name = ""
     active_hours = ""
     active_area = ""
+    active_grade = ""
 
     for idx, row in df.iterrows():
         try:
@@ -882,8 +884,10 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                 active_name = name_str
                 if hours_val:
                     active_hours = hours_val
-                if area_val:
+                if area_val and area_val.lower() != 'none':
                     active_area = area_val
+                if grade_val and grade_val.lower() != 'none':
+                    active_grade = grade_val
             elif hours_val:
                 active_hours = hours_val
 
@@ -892,6 +896,15 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 
             if not target_num or not target_name:
                 continue
+
+            # 이전 학생의 레코드가 남아있는데 대상 학생(target_num/target_name)이 바뀐 경우 먼저 안전하게 플러시!
+            if current_student_record is not None:
+                curr_n = current_student_record[num_col]
+                curr_nm = current_student_record[name_col]
+                if curr_n != target_num or curr_nm != target_name:
+                    if str(current_student_record.get(content_col, '')).strip():
+                        refined_rows.append(current_student_record)
+                    current_student_record = None
 
             # NEIS 진로활동 '희망분야' (Column F) 및 학생 희망분야 내용 (Column G) 검사
             is_hope_row, hope_val = check_jinro_hope_field(row_dict)
@@ -920,7 +933,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             curr_area = current_student_record.get(area_col, '') if (current_student_record and area_col) else ''
 
             is_same_student = (current_student_record is not None and curr_num == target_num and curr_name == target_name)
-            effective_area = area_val if area_val else active_area
+            effective_area = area_val if (area_val and area_val.lower() != 'none') else active_area
             is_same_area = (not area_col or not effective_area or not curr_area or effective_area == curr_area or effective_area in curr_area or curr_area in effective_area)
 
             is_new_activity_start = (
@@ -952,10 +965,14 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             new_record[num_col] = target_num
             new_record[name_col] = target_name
             new_record[content_col] = content_val
+
+            eff_area = area_val if (area_val and area_val.lower() != 'none') else (active_area if active_area else "진로활동")
+            eff_grade = grade_val if (grade_val and grade_val.lower() != 'none') else (active_grade if active_grade else "3")
+
             if area_col:
-                new_record[area_col] = area_val if area_val else active_area
-            if grade_col and grade_val:
-                new_record[grade_col] = (grade_val + "학년") if not grade_val.endswith("학년") else grade_val
+                new_record[area_col] = eff_area
+            if grade_col:
+                new_record[grade_col] = (eff_grade + "학년") if not str(eff_grade).endswith("학년") else eff_grade
 
             # 시간(이수시간) 컬럼 보전 및 계승
             for h_col in ['시간', '시 간', '이수시간']:
@@ -1874,8 +1891,14 @@ def main():
                         num_series = get_safe_series(final_df, num_c)
                         name_series = get_safe_series(final_df, name_c)
                         unique_students_cnt = len(pd.DataFrame({'num': num_series, 'name': name_series}).drop_duplicates())
+                        
                         if type_key == "창체":
-                            st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {len(final_df)}개 영역 기록)")
+                            expected_total = unique_students_cnt * 3
+                            missing_cnt = expected_total - len(final_df)
+                            if missing_cnt > 0:
+                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {len(final_df)}개 영역 기록, 미작성/공란 {missing_cnt}개 영역)")
+                            else:
+                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {len(final_df)}개 영역 기록)")
                         elif type_key == "세특":
                             st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {len(final_df)}개 과목 기록)")
                         else:
