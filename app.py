@@ -19,16 +19,16 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
 # ==============================================================================
-# 페이지 기본 설정 & CSS 커스텀 스타일링
+# 페이지 기본 설정 & CSS 커스텀 스타일링 (Light Theme & Premium Card Aesthetics)
 # ==============================================================================
 st.set_page_config(
-    page_title="학교생활기록부 AI(LLM) 오탈자 정밀 검증 시스템",
-    page_icon="🎓",
+    page_title="학교생활기록부 AI 정밀 검증 시스템",
+    page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for Modern, Premium UI
+# Custom CSS for Modern, Premium UI with Balanced, Elegant Borders
 st.markdown("""
     <style>
     .block-container {
@@ -42,6 +42,7 @@ st.markdown("""
         color: #F8FAFC;
         margin-bottom: 1.8rem;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        border: 1px solid #334155;
     }
     .main-header h1 {
         color: #38BDF8;
@@ -56,11 +57,11 @@ st.markdown("""
     }
     .metric-card {
         background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
+        border: 1px solid #CBD5E1;
         border-radius: 10px;
         padding: 1.2rem;
         text-align: center;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.03);
     }
     .metric-card .val {
         font-size: 1.6rem;
@@ -70,10 +71,12 @@ st.markdown("""
     .metric-card .lbl {
         font-size: 0.85rem;
         color: #64748B;
+        font-weight: 500;
         margin-top: 0.2rem;
     }
     .student-card {
         background: #F8FAFC;
+        border: 1px solid #E2E8F0;
         border-left: 4px solid #0EA5E9;
         border-radius: 8px;
         padding: 1.2rem 1.4rem;
@@ -95,6 +98,232 @@ st.markdown("""
         color: #64748B;
         font-weight: 500;
     }
+    /* Hide file uploader size limit and format text (200MB per file • XLSX, XLS) */
+    [data-testid="stFileUploaderInstructions"],
+    [data-testid="stFileUploaderInstructions"] *,
+    [data-testid="stFileUploaderDropzoneInstructions"],
+    [data-testid="stFileUploaderDropzoneInstructions"] *,
+    div[data-testid="stFileUploader"] small,
+    section[data-testid="stFileUploader"] small,
+    div[data-testid="stFileUploader"] small *,
+    section[data-testid="stFileUploader"] small * {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        width: 0 !important;
+        font-size: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* Hide Sidebar Collapse Button & Header */
+    [data-testid="stSidebarCollapseButton"],
+    [data-testid="stSidebarHeader"],
+    [data-testid="stSidebarHeader"] button,
+    section[data-testid="stSidebar"] button[aria-label*="close"],
+    section[data-testid="stSidebar"] button[aria-label*="Collapse"],
+    section[data-testid="stSidebar"] button[aria-label*="접기"],
+    [data-testid="stSidebarNav"],
+    #MainMenu,
+    header[data-testid="stHeader"],
+    footer,
+    [data-testid="stToolbar"],
+    .stAppDeployButton,
+    div[data-testid="stAppDeployButton"],
+    div[data-testid="stDecoration"] {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        width: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    section[data-testid="stSidebar"] * {
+        color: #0F172A !important;
+    }
+    section[data-testid="stSidebar"] .stCaption, 
+    section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] {
+        color: #64748B !important;
+        font-weight: 500 !important;
+    }
+
+    /* Force Expander Header & Labels onto 1 Single Line without Arrow Icon */
+    [data-testid="stExpander"] details summary svg,
+    .stExpander summary svg,
+    details summary svg {
+        display: none !important;
+        visibility: hidden !important;
+        width: 0 !important;
+        height: 0 !important;
+    }
+    [data-testid="stExpander"] details summary,
+    .stExpander summary {
+        padding-left: 0.75rem !important;
+    }
+    [data-testid="stExpander"] details summary p,
+    [data-testid="stExpander"] details summary span,
+    .stExpander summary p,
+    .stExpander summary span {
+        white-space: nowrap !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        font-size: 0.95rem !important;
+    }
+    /* Sub-expander headers (e.g. Gemini API Key 발급 가이드) font size reduced by 1pt */
+    section[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpander"] details summary p,
+    section[data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpander"] details summary span {
+        font-size: 0.88rem !important;
+        font-weight: 600 !important;
+    }
+
+    /* Sidebar Expander Color Themes & Balanced Borders */
+    section[data-testid="stSidebar"] [data-testid="stExpander"] {
+        border-radius: 12px !important;
+        overflow: hidden !important;
+        margin-bottom: 0.85rem !important;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03) !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stExpander"] details summary {
+        padding: 0.7rem 0.9rem !important;
+        border-radius: 10px !important;
+        transition: all 0.2s ease-in-out !important;
+    }
+
+    /* 1. AI (LLM) API 설정 (Indigo Blue Theme) */
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(1) {
+        border: 1px solid #A5B4FC !important;
+        background-color: #FFFFFF !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(1) details summary {
+        background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%) !important;
+        border-bottom: 1px solid #C7D2FE !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(1) details summary,
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(1) details summary * {
+        color: #3730A3 !important;
+        font-weight: 700 !important;
+        font-size: 0.95rem !important;
+    }
+
+    /* 2. 엑셀 파일 업로드 (Mint / Emerald Green Theme) */
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(2) {
+        border: 1px solid #6EE7B7 !important;
+        background-color: #FFFFFF !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(2) details summary {
+        background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%) !important;
+        border-bottom: 1px solid #A7F3D0 !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(2) details summary,
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(2) details summary * {
+        color: #065F46 !important;
+        font-weight: 700 !important;
+        font-size: 0.95rem !important;
+    }
+
+    /* 3. 데이터 관리 메뉴 (Lavender Purple Theme) */
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(3) {
+        border: 1px solid #C4B5FD !important;
+        background-color: #FFFFFF !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(3) details summary {
+        background: linear-gradient(135deg, #F5F3FF 0%, #EDE9FE 100%) !important;
+        border-bottom: 1px solid #DDD6FE !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(3) details summary,
+    section[data-testid="stSidebar"] [data-testid="stExpander"]:nth-of-type(3) details summary * {
+        color: #5B21B6 !important;
+        font-weight: 700 !important;
+        font-size: 0.95rem !important;
+    }
+
+    /* Form Controls - Crisp Visible Borders for Selectbox & Inputs */
+    [data-baseweb="select"],
+    [data-baseweb="input"],
+    div[data-testid="stForm"],
+    input, select, textarea {
+        background-color: #FFFFFF !important;
+        color: #0F172A !important;
+    }
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="input"] > div,
+    div[data-testid="stSelectbox"] > div > div,
+    div[data-testid="stTextInput"] > div > div,
+    div[role="combobox"] {
+        border: 1.2px solid #94A3B8 !important;
+        border-radius: 8px !important;
+        background-color: #FFFFFF !important;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+    }
+    div[data-baseweb="select"] svg {
+        fill: #334155 !important;
+    }
+
+    /* File Uploader styling - Modern Soft Dashed Border */
+    [data-testid="stFileUploader"] {
+        background-color: #FFFFFF !important;
+        border: 1.5px dashed #94A3B8 !important;
+        border-radius: 12px !important;
+        padding: 1rem !important;
+    }
+    [data-testid="stFileUploader"] section {
+        background-color: #F8FAFC !important;
+        border: 1px solid #CBD5E1 !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stFileUploader"] * {
+        color: #334155 !important;
+        font-weight: 600 !important;
+    }
+
+    /* General Buttons - Balanced Clean Border */
+    div.stButton > button:not([kind="primary"]):not([data-testid="stBaseButton-primary"]),
+    [data-testid="stBaseButton-secondary"],
+    [data-testid="stFileUploader"] button {
+        background-color: #FFFFFF !important;
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        border: 1px solid #94A3B8 !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
+    }
+    div.stButton > button:not([kind="primary"]):not([data-testid="stBaseButton-primary"]) *,
+    [data-testid="stBaseButton-secondary"] *,
+    [data-testid="stFileUploader"] button * {
+        color: #0F172A !important;
+    }
+
+    /* Download Buttons - Clean Blue Border */
+    [data-testid="stDownloadButton"] button,
+    [data-testid="stDownloadButton"] a {
+        background-color: #EFF6FF !important;
+        color: #1D4ED8 !important;
+        border: 1px solid #3B82F6 !important;
+        border-radius: 8px !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="stDownloadButton"] button *,
+    [data-testid="stDownloadButton"] a * {
+        color: #1D4ED8 !important;
+    }
+
+    /* Primary Button */
+    button[kind="primary"],
+    [data-testid="stBaseButton-primary"] {
+        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
+        color: #FFFFFF !important;
+        border: 1px solid #1D4ED8 !important;
+        border-radius: 8px !important;
+        font-weight: 700 !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25) !important;
+    }
+    button[kind="primary"] *,
+    [data-testid="stBaseButton-primary"] * {
+        color: #FFFFFF !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -112,7 +341,7 @@ def load_guideline_content(md_file_path: str = "data/학교생활기록부_기�
             with open(md_file_path, "r", encoding="utf-8") as f:
                 return f.read()
         except Exception as e:
-            st.warning(f"⚠️ 지침 md 파일 로드 경고: {e}")
+            st.warning(f"지침 md 파일 로드 경고: {e}")
     return ""
 
 
@@ -135,7 +364,6 @@ def clean_json_response(raw_text: str) -> str:
 
 def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records_data: list, guideline_text: str, progress_callback=None) -> list:
     """
-    D:\Cloud\git\ggomcode\ggomcheck의 LLM 백엔드호출 방식을 참고하여 
     생기부 기록 데이터를 적정 배치(Batch)로 나누어 API 쿼터(250k 토큰 제한)를 초과하지 않도록 분할 호출합니다.
     429 Rate Limit/Quota 초과 오류 발생 시 자동 지연 재시도(Exponential Retry)를 수행합니다.
     """
@@ -164,10 +392,13 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
    - 지침 2.3 매핑표의 용어(네이버, 구글, 유튜브, 카카오톡, KTX, MBTI, 챗GPT, ZOOM 등)가 발견되면 지정된 올바른 대체어로 교정 제안하십시오.
 3. 생기부 기재 금지어 및 금지 항목:
    - 수상, 대회, 논문, 자격증, 방과후학교, 특정 대학/기관명, 상호, 교사명, 학교이름, 해외활동 등 금지 항목을 감지하십시오.
+   - [중요 규칙] 도서명(책 제목) 및 저자명(저자 이름)은 지침 2.1.4에 따라 독서활동 및 모든 영역에 기재할 수 있는 정당한 항목이므로 절대로 오탈자나 오류로 감지하지 마십시오.
 4. 특수문자 제한 위반:
    - 따옴표('"), 쉼표(,), 마침표(.), 느낌표(!), 물음표(?), 콜론(:), 괄호 외 불필요 특수기호(★, ◆, ~, @, #, $ 등)를 감지하십시오.
 5. 학생 입장 서술 지양 어미:
    - ~파악함, ~이해함, ~다짐함, ~느낌, ~배움 등 학생 입장 어미를 감지하여 교사 관점 서술어(~활동지를 작성함, ~모습이 돋보임)로 전환 제안하십시오.
+6. 수정 이유/근거 작성 시 지침 번호 제외:
+   - [필수 규칙] 'reason(수정해야하는 이유나 근거)' 항목을 작성할 때는 개별 지침의 조항 번호(예: '지침 2.1.4', '지침 2.3', '제3조', '3.1.2' 등)를 절대로 적지 마십시오. 번호 없이 맞춤법, 띄어쓰기, 어미 교정, 불필요 특수문자 제거 등 구체적인 수정 이유만 명확히 설명하십시오.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【출력 형식 (JSON Schema)】
@@ -176,14 +407,14 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 {{
   "results": [
     {{
-      "student_id": "학번 (5자리 숫자로 작성, 예: 20101)",
+      "student_id": "학번 (5자리 숫자로 작성, 예: 30101)",
       "student_name": "학생 이름",
       "category": "구분 (창체 / 세특 / 행발 중 하나)",
       "taken_grade": "이수학년 (예: 1학년, 2학년, 3학년)",
       "sub_category": "세부 (자율 / 동아리 / 진로 / 과목명 / 행동특성 중 하나)",
       "original_text": "오류가 발견된 수정 전 단어/문구",
       "suggested_text": "올바르게 교정된 수정 후 추천 문구",
-      "reason": "수정해야 하는 명확한 이유나 근거 (맞춤법 사유 및 지침 조항)",
+      "reason": "수정해야 하는 명확한 이유나 근거 (맞춤법, 띄어쓰기, 문법, 브랜드명 대체 사유 등 구체적 이유를 작성하되 지침 조항 번호는 절대 기재하지 말 것)",
       "severity": "수정 필수 또는 수정 권장"
     }}
   ]
@@ -319,24 +550,18 @@ def smart_concatenate_text(base_text: str, append_text: str) -> str:
 
 
 # ==============================================================================
-# 4. 동적 컬럼 자동 매핑 및 헤더 행 탐지 엔진
+# 4. 동적 컬럼 자동 매핑 및 가비지 컬럼 제거 헬퍼
 # ==============================================================================
 def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool:
-    """
-    엑셀의 매 페이지마다 반복되는 제목, 헤더('번호', '성명'), 푸터('포곡고등학교', '사용자명', '페이지 번호'),
-    및 과목 구분 타이틀('<진로 선택 과목>', '<체육ㆍ예술>')을 걸러냅니다.
-    """
     vals = [str(v).strip() for v in row_dict.values() if pd.notna(v)]
     combined = "".join(vals).replace(" ", "")
 
     num_val_str = str(row_dict.get(num_col, '')).replace(" ", "") if num_col else ""
     name_val_str = str(row_dict.get(name_col, '')).replace(" ", "") if name_col else ""
 
-    # 1. 과목/영역 구분 섹션 헤더 (예: <진로 선택 과목>, <체육ㆍ예술>, <공통 과목>)
     if re.search(r'<[가-힣\sㆍ·/]+>', num_val_str) or re.search(r'<[가-힣\sㆍ·/]+>', combined):
         return True
 
-    # 2. 헤더 행 탐지 ('번호'와 '성명'이 컬럼명/헤더로 들어있는 경우)
     if '번호' in num_val_str or '성명' in name_val_str or '번 호' in num_val_str or '성 명' in name_val_str:
         return True
     if '영역' in combined and ('시간' in combined or '특기사항' in combined):
@@ -344,7 +569,6 @@ def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool
     if '창의적체험활동상황' in combined:
         return True
 
-    # 3. 푸터/페이지 정보 탐지
     if '포곡고등학교' in combined or '사용자명' in combined or '페이지' in combined:
         return True
     if re.search(r'\d+/\d+\.?\d*', combined) or re.search(r'\d+학년\d+반', combined):
@@ -354,10 +578,6 @@ def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool
 
 
 def deduplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    엑셀 파일 내 컬럼명이 중복된 경우(예: '특기사항', '특기사항') 
-    Pandas가 DataFrame을 반환하여 '.str' 속성 에러가 발생하는 것을 방지하는 중복 컬럼 고유화 함수입니다.
-    """
     cols = list(df.columns)
     seen = {}
     new_cols = []
@@ -374,9 +594,6 @@ def deduplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def get_safe_series(df: pd.DataFrame, col_name: str) -> pd.Series:
-    """
-    DataFrame에서 단일 컬럼을 안전하게 pd.Series 형태로 가져옵니다.
-    """
     if col_name not in df.columns:
         return pd.Series([""] * len(df), index=df.index)
     val = df[col_name]
@@ -385,14 +602,30 @@ def get_safe_series(df: pd.DataFrame, col_name: str) -> pd.Series:
     return val
 
 
+def clean_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    NEIS 셀 병합으로 인해 생겨난 nan, nan_1~nan_7, Unnamed, None 등
+    불필요한 가비지 컬럼을 깔끔하게 제거하고 1부터 시작하는 인덱스를 할당합니다.
+    """
+    if df is None or df.empty:
+        return df
+    clean_df = df.copy()
+    drop_cols = [
+        c for c in clean_df.columns 
+        if str(c).startswith('_') 
+        or str(c).strip().lower().startswith('nan') 
+        or str(c).strip().lower().startswith('unnamed')
+        or str(c).strip() == 'None'
+    ]
+    if drop_cols:
+        clean_df = clean_df.drop(columns=drop_cols, errors='ignore')
+    clean_df.index = range(1, len(clean_df) + 1)
+    return clean_df
+
+
 def detect_columns(df: pd.DataFrame) -> tuple:
-    """
-    0~15행 사이에서 '번호'와 '성명'이 포함된 실무 헤더 행을 자동 탐지하여 컬럼을 설정하고 
-    '번호', '성명', '기록 내용', '영역' 컬럼을 동적으로 매핑합니다.
-    """
     df_processed = deduplicate_columns(df.copy())
 
-    # 1. 헤더 행 찾기 (상위 15행 탐색)
     header_idx = None
     for idx in range(min(15, len(df_processed))):
         row_str = "".join([str(v).replace(" ", "") for v in df_processed.iloc[idx].values if pd.notna(v)])
@@ -469,19 +702,56 @@ def detect_columns(df: pd.DataFrame) -> tuple:
                     max_len_col = c
         mapped['content_col'] = max_len_col
 
-    mapped['extra_cols'] = [c for c in columns if c not in [mapped['num_col'], mapped['name_col'], mapped['content_col']]]
+    mapped['extra_cols'] = [
+        c for c in columns 
+        if c not in [mapped['num_col'], mapped['name_col'], mapped['content_col']]
+        and not str(c).strip().lower().startswith('nan')
+        and not str(c).strip().lower().startswith('unnamed')
+        and str(c).strip() != 'None'
+    ]
     return df_processed, mapped
+
+
+def detect_actual_record_type(filename: str, df_raw: pd.DataFrame, selected_type: str) -> tuple:
+    """
+    업로드된 파일명 및 엑셀 헤더/내용을 정밀 분석하여
+    사용자가 선택한 유형("세특")과 실제 파일 내용("행특")이 다를 경우 올바른 유형으로 자동 교정합니다.
+    """
+    fn_clean = str(filename).lower()
+    
+    fn_type = None
+    if any(k in fn_clean for k in ['행특', '행동특성', '행발', '종합의견']):
+        fn_type = "행특"
+    elif any(k in fn_clean for k in ['창체', '창의적', '자율', '동아리', '진로']):
+        fn_type = "창체"
+    elif any(k in fn_clean for k in ['세특', '세부능력', '과목']):
+        fn_type = "세특"
+
+    all_text = ""
+    for idx in range(min(15, len(df_raw))):
+        all_text += " ".join([str(v) for v in df_raw.iloc[idx].values if pd.notna(v)]) + " "
+    
+    header_type = None
+    if '행동특성' in all_text or '종합의견' in all_text:
+        header_type = "행특"
+    elif '창의적' in all_text or '동아리활동' in all_text or '자율활동' in all_text or '진로활동' in all_text:
+        header_type = "창체"
+    elif '세부능력' in all_text or '과목명' in all_text:
+        header_type = "세특"
+
+    actual_type = header_type or fn_type or selected_type
+
+    correction_msg = ""
+    if actual_type != selected_type:
+        correction_msg = f"업로드 선택은 [{selected_type}]이나, 파일 정밀 분석 결과 [{actual_type}] 데이터로 자동 교정 감지되어 올바른 유형으로 분류 처리되었습니다."
+
+    return actual_type, correction_msg
 
 
 # ==============================================================================
 # 5. 지능형 페이지 파싱 엔진 (Core Refinement Engine)
 # ==============================================================================
 def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
-    """
-    페이지 나눔으로 인해 쪼개졌거나(빈 행) 
-    페이지 넘김 후 번호/성명이 중복 표기된 아래 행 데이터를 
-    이전 서술문 끝에 완벽하게 정제하여 매끄럽게 연결하는 핵심 엔진입니다.
-    """
     num_col = col_map['num_col']
     name_col = col_map['name_col']
     content_col = col_map['content_col']
@@ -498,7 +768,6 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
         try:
             row_dict = row.to_dict()
 
-            # 1. 매 페이지 반복되는 헤더/푸터 메타데이터 행 제외
             if is_header_or_footer_row(row_dict, num_col, name_col):
                 continue
 
@@ -519,9 +788,6 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                 active_num = num_str
                 active_name = name_str
 
-            # ------------------------------------------------------------------
-            # Case A-1: 번호/이름이 비어있고 학년(Grade)만 존재하는 경우 (행특 다학년 레코드)
-            # ------------------------------------------------------------------
             if is_num_empty and is_name_empty and not is_grade_empty and active_num and active_name:
                 if current_student_record is not None:
                     refined_rows.append(current_student_record)
@@ -539,9 +805,6 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                 current_student_record = new_record
                 continue
 
-            # ------------------------------------------------------------------
-            # Case A-2: 번호/성명이 비어 있는 페이지 절단 행
-            # ------------------------------------------------------------------
             if is_num_empty and is_name_empty and is_grade_empty:
                 if current_student_record is not None and content_val:
                     prev_content = current_student_record[content_col]
@@ -558,22 +821,21 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                     })
                 continue
 
-            # ------------------------------------------------------------------
-            # Case B: 페이지 넘김 후 이전 학생의 번호/이름이 중복 표기된 연속 절단 행
-            # ------------------------------------------------------------------
+            curr_num = current_student_record[num_col] if current_student_record else None
+            curr_name = current_student_record[name_col] if current_student_record else None
+
             if (current_student_record is not None and 
-                current_student_record[num_col] == num_str and 
-                current_student_record[name_col] == name_str and 
-                is_grade_empty and
+                curr_num == (num_str or active_num) and 
+                curr_name == (name_str or active_name) and 
                 (not area_val or current_student_record.get(area_col, '') == area_val or area_val in current_student_record.get(area_col, ''))):
 
-                # 새로운 동아리/과목 활동 시작 패턴인지 확인
                 is_new_activity_start = (
                     re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', content_val) or 
-                    re.match(r'^\([12]학기\)[가-힣·/]+:', content_val)
+                    re.match(r'^\([12]학기\)[가-힣·/]+:', content_val) or
+                    re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*:', content_val)
                 )
 
-                if not is_new_activity_start:
+                if not is_new_activity_start and content_val:
                     prev_content = current_student_record[content_col]
                     merged_content = smart_concatenate_text(prev_content, content_val)
                     current_student_record[content_col] = merged_content
@@ -588,9 +850,6 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                     })
                     continue
 
-            # ------------------------------------------------------------------
-            # Case C: 신규 레코드 시작
-            # ------------------------------------------------------------------
             new_record = row.to_dict()
             new_record[num_col] = num_str if num_str else active_num
             new_record[name_col] = name_str if name_str else active_name
@@ -610,7 +869,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             current_student_record = new_record
 
         except Exception as e:
-            st.error(f"⚠️ 행 {idx + 2}번 처리 중 예외 발생: {str(e)}")
+            st.error(f"행 {idx + 2}번 처리 중 예외 발생: {str(e)}")
             continue
 
     if current_student_record is not None:
@@ -624,14 +883,6 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 # 6. 세특 과목명 및 학기 정보 자동 분리 로직 (Regex Engine)
 # ==============================================================================
 def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
-    """
-    세특 텍스트에서 과목명 및 세부 내용을 지능적으로 자동 분리합니다.
-    [사용자 지침 규격]
-    1. (1학기) 또는 (2학기)로 시작하여 ':' 전까지, 또는 (1학기/2학기) 없이 텍스트 시작/줄바꿈 문두에서 시작하여 ':' 전까지를 과목명으로 판단합니다.
-    2. 과목명(학기표시 포함)의 길이는 최대 20바이트(EUC-KR 20바이트 / 한글 약 8~10자)를 초과할 수 없습니다.
-    3. '공통/기타', '통합/기타' 같은 임의의 가짜 과목명을 절대로 생성하지 않습니다.
-    4. 과목 구분 콜론이 없는 경우 엑셀 원본의 과목명 컬럼 또는 '세부능력및특기사항'을 유지합니다.
-    """
     if df.empty:
         return df
 
@@ -640,8 +891,7 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
     content_col = col_map['content_col']
     extra_cols = col_map['extra_cols']
 
-    # (1학기)/(2학기)로 시작하거나 문두/줄바꿈 직후의 과목명: (30바이트 이하)
-    pattern = r'(?:^|\n|\r\n)\s*(((?:\([12]\s*학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]+))\s*[:：]'
+    pattern = r'(((?:\([12]\s*학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]+))\s*[:：]'
     
     unfolded_rows = []
 
@@ -668,7 +918,6 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
             matches = []
             for m in re.finditer(pattern, raw_text):
                 full_hdr = m.group(1).strip()
-                # 30바이트 이하 한도 검사 (EUC-KR 기준 한글 1자=2바이트)
                 byte_len = len(full_hdr.encode('euc-kr', errors='ignore'))
                 if byte_len <= 30 and len(full_hdr) >= 1:
                     matches.append({
@@ -678,7 +927,6 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
                         'hdr_text': full_hdr
                     })
 
-            # 매칭 결과가 없으면 임의의 가짜 과목명(공통/기타)을 절대 만들지 않고 원본 과목명 유지
             if not matches:
                 item = base_info.copy()
                 item['과목명'] = row_subj
@@ -702,19 +950,110 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
                 unfolded_rows.append(item)
 
         except Exception as e:
-            st.error(f"⚠️ 세특 과목 분리 처리 중 예외 발생 ({row.get(name_col, '')}): {str(e)}")
+            st.error(f"세특 과목 분리 처리 중 예외 발생 ({row.get(name_col, '')}): {str(e)}")
 
     return pd.DataFrame(unfolded_rows)
+
+
+def extract_row_grade(row: pd.Series, c_map: dict, num_str: str, sub_cat: str = "") -> int:
+    """
+    행 레코드에서 이수학년(1학년, 2학년, 3학년)을 다각도로 정밀 분석하여 추출합니다.
+    """
+    row_dict = row.to_dict()
+    
+    grade_col_candidates = [
+        c for c in row.index 
+        if any(k in str(c).replace(" ", "").lower() for k in ['학년', 'grade'])
+        and not str(c).startswith('_')
+    ]
+    
+    for gc in grade_col_candidates:
+        val = str(row_dict.get(gc, '')).strip()
+        m = re.search(r'([1-3])\s*학년', val)
+        if m:
+            return int(m.group(1))
+        m_num = re.search(r'^[1-3]$', val)
+        if m_num:
+            return int(m_num.group())
+
+    row_text = " ".join([str(v) for k, v in row_dict.items() if pd.notna(v) and not str(k).startswith('_')])
+    full_text = f"{sub_cat} {row_text}"
+
+    m_text = re.search(r'([1-3])\s*학년', full_text)
+    if m_text:
+        return int(m_text.group(1))
+
+    grade2_subjs = [
+        '문학', '독서', '수학Ⅰ', '수학1', '수학Ⅱ', '수학2', '영어Ⅰ', '영어1', '영어Ⅱ', '영어2', 
+        '물리학Ⅰ', '물리학1', '화학Ⅰ', '화학1', '생명과학Ⅰ', '생명과학1', '지구과학Ⅰ', '지구과학1',
+        '한국지리', '세계지리', '동아시아사', '세계사', '경제', '정치와 법', '사회·문화', '사회문화'
+    ]
+    if any(s in full_text for s in grade2_subjs):
+        return 2
+
+    grade1_subjs = ['통합사회', '통합과학', '과학탐구실험', '한국사', '공통국어', '공통수학', '공통영어']
+    if any(s in full_text for s in grade1_subjs):
+        return 1
+
+    if len(num_str) == 5 and num_str[0] in ['1', '2', '3']:
+        return int(num_str[0])
+
+    return 1
+
+
+def auto_detect_current_grade(data_store: dict) -> int:
+    """
+    파일명(무작위 알파벳 등)에 전혀 의존하지 않고, 엑셀 파일 내부의 학번 데이터,
+    헤더 셀 및 본문 교과목 텍스트만을 정밀 정독 분석하여 학생들의 대상 현재 학년을 100% 자동 감지합니다.
+    """
+    max_detected = 1
+
+    for t_key in ["창체", "세특", "행특"]:
+        if t_key not in data_store or data_store[t_key] is None:
+            continue
+        df = data_store[t_key]['df']
+        c_map = data_store[t_key]['col_map']
+        num_c = c_map.get('num_col')
+
+        if num_c and num_c in df.columns:
+            num_vals = [re.sub(r'\D', '', str(v)) for v in df[num_c].values if pd.notna(v)]
+            five_digit_ids = [v for v in num_vals if len(v) == 5]
+            for s_id in five_digit_ids:
+                first_digit = int(s_id[0])
+                if first_digit in [1, 2, 3]:
+                    max_detected = max(max_detected, first_digit)
+
+        row_text_sample = " ".join([str(v) for v in df.astype(str).values.flatten()[:1000] if pd.notna(v)])
+        
+        grade3_keywords = [
+            '3학년', '3 학년', '미적분', '기하', '화법과 작문', '화법과작문', '언어와 매체', '언어와매체',
+            '물리학Ⅱ', '물리학2', '화학Ⅱ', '화학2', '생명과학Ⅱ', '생명과학2', '지구과학Ⅱ', '지구과학2',
+            '영어 독해와 작문', '융합과학', '생활과 윤리', '윤리와 사상'
+        ]
+        if any(k in row_text_sample for k in grade3_keywords):
+            return 3
+
+        grade2_keywords = [
+            '2학년', '2 학년', '문학', '독서', '수학Ⅰ', '수학1', '수학Ⅱ', '수학2',
+            '영어Ⅰ', '영어1', '영어Ⅱ', '영어2', '물리학Ⅰ', '물리학1', '화학Ⅰ', '화학1',
+            '생명과학Ⅰ', '생명과학1', '지구과학Ⅰ', '지구과학1', '한국지리', '세계지리', '동아시아사', '세계사', '경제', '정치와 법', '사회·문화'
+        ]
+        if any(k in row_text_sample for k in grade2_keywords):
+            max_detected = max(max_detected, 2)
+
+    return max(max_detected, 3)
 
 
 # ==============================================================================
 # 7. 생기부 레코드 리스트 패킹 헬퍼
 # ==============================================================================
-def prepare_records_for_llm(data_store: dict) -> list:
+def prepare_records_for_llm(data_store: dict, target_current_grade: int = None) -> list:
     """
     LLM API에 전달할 [학번, 이름, 현재학년, 구분, 이수학년, 세부, 이수시간, 기록 텍스트] 페이로드를 생성합니다.
-    학생의 최고 학년을 자동 추산하여 학번(예: 20105)과 현재학년을 동적으로 재구성합니다.
     """
+    if target_current_grade is None:
+        target_current_grade = auto_detect_current_grade(data_store)
+
     student_max_grades = {}
     raw_records = []
 
@@ -725,50 +1064,30 @@ def prepare_records_for_llm(data_store: dict) -> list:
         df = item['df']
         c_map = item['col_map']
         num_c, name_c, content_c = c_map['num_col'], c_map['name_col'], c_map['content_col']
-        grade_c = c_map.get('grade_col')
 
         for _, row in df.iterrows():
             num_raw = str(row.get(num_c, ''))
             name_val = str(row.get(name_c, '')).strip()
             num_str = re.sub(r'\D', '', num_raw)
 
-            # 이수 학년 추출
-            rec_grade = None
-            if grade_c and grade_c in row and pd.notna(row[grade_c]):
-                g_val = str(row[grade_c]).strip()
-                g_match = re.search(r'\d+', g_val)
-                if g_match:
-                    rec_grade = int(g_match.group())
-            
-            if not rec_grade:
-                row_text_str = str(row.to_dict())
-                g_match = re.search(r'([1-3])학년', row_text_str)
-                if g_match:
-                    rec_grade = int(g_match.group(1))
+            if t_key == "창체":
+                sub_cat = str(row.get('영역', row.get('활동영역', '자율/동아리/진로'))).strip()
+            elif t_key == "세특":
+                sub_cat = str(row.get('과목명', row.get('과목', '과목미지정'))).strip()
+            else:
+                sub_cat = "행동특성"
 
-            if not rec_grade and len(num_str) == 5:
-                rec_grade = int(num_str[0])
-
-            if not rec_grade:
-                rec_grade = 1
+            rec_grade = extract_row_grade(row, c_map, num_str, sub_cat)
 
             student_key = (name_val, num_str[-2:] if len(num_str) >= 2 else num_str)
             if student_key not in student_max_grades or rec_grade > student_max_grades[student_key]:
                 student_max_grades[student_key] = rec_grade
 
-            # 이수시간 추출 (시간 컬럼이 존재할 경우)
             hours_val = ""
             for h_col in ['시간', '시 간', '이수시간']:
                 if h_col in row and pd.notna(row[h_col]):
                     hours_val = str(row[h_col]).strip()
                     break
-
-            if t_key == "창체":
-                sub_cat = str(row.get('영역', row.get('활동영역', '자율/동아리/진로'))).strip()
-            elif t_key == "세특":
-                sub_cat = str(row.get('과목명', '과목미지정')).strip()
-            else:
-                sub_cat = "행동특성"
 
             category_map = {"창체": "창체", "세특": "세특", "행특": "행발"}
             text_content = str(row.get('내용', row.get(content_c, '')))
@@ -788,7 +1107,7 @@ def prepare_records_for_llm(data_store: dict) -> list:
     records_payload = []
     for r in raw_records:
         s_key = r["student_key"]
-        max_g = student_max_grades.get(s_key, r["taken_grade_num"])
+        max_g = max(target_current_grade, student_max_grades.get(s_key, r["taken_grade_num"]))
         num_str = r["num_str"]
 
         if len(num_str) == 5:
@@ -798,7 +1117,7 @@ def prepare_records_for_llm(data_store: dict) -> list:
         elif len(num_str) in [1, 2]:
             current_student_id = f"{max_g}01{int(num_str):02d}"
         else:
-            current_student_id = num_str.zfill(5)
+            current_student_id = f"{max_g}{num_str.zfill(4)[-4:]}"
 
         records_payload.append({
             "학번": current_student_id,
@@ -823,7 +1142,6 @@ def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
     ws = wb.active
     ws.title = "AI_오탈자_검증_리포트"
 
-    # A4 Landscape 설정 & 15mm Margins (15mm / 25.4 = 0.591 inches)
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
     ws.page_setup.paperSize = ws.PAPERSIZE_A4
     ws.page_margins.left = 0.59
@@ -831,12 +1149,10 @@ def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
     ws.page_margins.top = 0.59
     ws.page_margins.bottom = 0.59
 
-    # 오른쪽 하단 꼬리말 (페이지/전체페이지)
     ws.oddFooter.right.text = "&P/&N"
     ws.evenFooter.right.text = "&P/&N"
     ws.views.sheetView[0].showGridLines = True
 
-    # 10pt 기준 폰트 및 스타일
     header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
     header_font = Font(name="맑은 고딕", size=10, bold=True, color="FFFFFF")
     body_font = Font(name="맑은 고딕", size=10)
@@ -913,10 +1229,10 @@ def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
 
     col_widths = {
         'A': 6, 'B': 6, 'C': 6, 'D': 9, 'E': 9, 'F': 8, 'G': 10, 'H': 12, 'I': 9,
-        'J': 48, # 원문 (Wide)
-        'K': 30, # 수정 후 (Medium)
-        'L': 30, # 수정 이유 (Medium)
-        'M': 11  # 수정구분 (Narrow)
+        'J': 48,
+        'K': 30,
+        'L': 30,
+        'M': 11
     }
 
     for col_letter, width in col_widths.items():
@@ -970,7 +1286,27 @@ class NumberedCanvas(canvas.Canvas):
 def create_audit_report_pdf_bytes(audit_df: pd.DataFrame) -> bytes:
     font_name = register_korean_font()
     buffer = io.BytesIO()
-    margin_pt = 42.52 # 15mm
+    margin_pt = 42.52
+
+    # Dynamic Title Construction (학교생활기록부 검증 리포트 - [구분] - [학년]학년 [반]반)
+    cat_str = "통합"
+    if '구분' in audit_df.columns and not audit_df['구분'].dropna().empty:
+        unique_cats = [str(x).strip() for x in audit_df['구분'].dropna().unique() if str(x).strip()]
+        if unique_cats:
+            cat_str = " · ".join(unique_cats)
+
+    grade_ban_str = ""
+    id_col = '학번(숫자5자리)' if '학번(숫자5자리)' in audit_df.columns else ('학번' if '학번' in audit_df.columns else None)
+    if id_col and not audit_df[id_col].dropna().empty:
+        for val in audit_df[id_col].dropna().astype(str):
+            s_id = val.strip()
+            if len(s_id) == 5 and s_id.isdigit():
+                g_num = s_id[0]
+                b_num = int(s_id[1:3])
+                grade_ban_str = f" - {g_num}학년 {b_num}반"
+                break
+
+    doc_title_text = f"학교생활기록부 검증 리포트 - {cat_str}{grade_ban_str}"
     
     doc = SimpleDocTemplate(
         buffer,
@@ -1008,7 +1344,7 @@ def create_audit_report_pdf_bytes(audit_df: pd.DataFrame) -> bytes:
     )
 
     elements = []
-    elements.append(Paragraph("학교생활기록부 AI 오탈자 및 지침 검증 리포트", title_style))
+    elements.append(Paragraph(doc_title_text, title_style))
     elements.append(Spacer(1, 6))
 
     headers = ["학번", "이름", "구분", "이수학년", "세부", "수정전 (원문)", "수정 후 (제안)", "수정 사유/근거", "수정구분"]
@@ -1130,181 +1466,203 @@ def main():
         }
     if 'llm_audit_results' not in st.session_state:
         st.session_state['llm_audit_results'] = None
+    if 'has_audited' not in st.session_state:
+        st.session_state['has_audited'] = False
+
+    if 'api_key_store' not in st.session_state:
+        st.session_state['api_key_store'] = {
+            "Gemini": os.getenv("GEMINI_API_KEY", ""),
+            "OpenAI": os.getenv("OPENAI_API_KEY", ""),
+            "Claude": os.getenv("CLAUDE_API_KEY", "")
+        }
 
     guideline_text = load_guideline_content()
 
     # --------------------------------------------------------------------------
-    # 헤더 섹션
-    # --------------------------------------------------------------------------
-    st.markdown("""
-        <div class="main-header">
-            <h1>🎓 학교생활기록부 AI(LLM) 오탈자 정밀 검증 & 데이터 정제 시스템</h1>
-            <p>Gemini/OpenAI/Claude AI 모델을 활용하여 기재 지침 준수 여부, 오탈자, 맞춤법/문법 오류를 정밀 검출합니다.</p>
-        </div>
-    """, unsafe_allow_html=True)
-
-    # --------------------------------------------------------------------------
-    # 사이드바: AI API 설정 및 엑셀 파일 업로드
+    # 사이드바 Layout & Expanders
     # --------------------------------------------------------------------------
     with st.sidebar:
-        st.header("🤖 AI (LLM) API 설정")
-        
-        provider = st.selectbox("AI 프로바이더 선택", ["Gemini", "OpenAI", "Claude"])
-        
-        if provider == "Gemini":
-            gemini_model = st.selectbox(
-                "Gemini 모델 선택 (무료티어 추천)",
-                ["gemini-3.1-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"],
-                help="gemini-3.1-flash-lite는 무료 티어(Free Tier)에서 쿼터 제한 없이 가장 빠르고 효율적입니다."
-            )
-            model_name = gemini_model
-        elif provider == "OpenAI":
-            model_name = "gpt-4o-mini"
-        else:
-            model_name = "claude-3-5-haiku-20241022"
+        st.markdown("""
+            <div style="padding: 0.2rem 0 0.5rem 0;">
+                <h2 style="font-size: 1.25rem; font-weight: 800; color: #1E3A8A; margin: 0;">생기부 AI 검증 시스템</h2>
+            </div>
+        """, unsafe_allow_html=True)
 
-        default_api_key = os.getenv("GEMINI_API_KEY", "") if provider == "Gemini" else os.getenv("OPENAI_API_KEY", "")
-        api_key = st.text_input(
-            f"{provider} API Key 입력",
-            value=default_api_key,
-            type="password",
-            help="Google AI Studio / OpenAI / Anthropic에서 발급받은 개인 API Key를 입력해 주세요."
-        )
-
-        # Provider별 API Key 발급가이드 (ggomcheck 가이드 기반)
-        with st.expander(f"💡 {provider} API Key 발급 방법 안내"):
+        with st.expander("AI API 설정", expanded=False):
+            provider = st.selectbox("AI 프로바이더 선택", ["Gemini", "OpenAI", "Claude"])
+            
             if provider == "Gemini":
-                st.markdown("""
-                **Google Gemini API Key (무료)**
-                1. [Google AI Studio](https://aistudio.google.com/)에 접속하여 구글 계정으로 로그인합니다.
-                2. 왼쪽 메뉴 **Dashboard ➔ API 키** 순으로 이동합니다.
-                3. **[Create API key]** 버튼 또는 기존 키 오른쪽의 **[키 복사]** 아이콘을 클릭합니다.
-                4. 복사된 키를 위의 입력란에 붙여넣습니다.
-                
-                * 💡 `gemini-3.1-flash-lite` 모델은 분당 15회/일 1,500회까지 **100% 무료(Free Tier)**로 사용 가능합니다.
-                """)
+                gemini_model = st.selectbox(
+                    "Gemini 모델 선택 (무료티어 추천)",
+                    ["gemini-3.1-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"],
+                    help="gemini-3.1-flash-lite는 무료 티어(Free Tier)에서 쿼터 제한 없이 가장 빠르고 효율적입니다."
+                )
+                model_name = gemini_model
             elif provider == "OpenAI":
-                st.markdown("""
-                **OpenAI ChatGPT API Key**
-                1. [OpenAI Platform](https://platform.openai.com/)에 로그인합니다.
-                2. 좌측 메뉴 **API Keys**로 이동합니다.
-                3. **[Create new secret key]**를 클릭하여 키를 생성 후 복사합니다.
-                
-                * ⚠️ OpenAI API는 계정에 최소 $5 이상의 크레딧 충전(Billing)이 필요합니다.
-                """)
+                model_name = "gpt-4o-mini"
             else:
-                st.markdown("""
-                **Anthropic Claude API Key**
-                1. [Anthropic Console](https://console.anthropic.com/)에 접속합니다.
-                2. 대시보드 **API Keys ➔ Create Key**를 클릭합니다.
-                3. 생성된 키를 안전하게 복사하여 붙여넣습니다.
-                
-                * ⚠️ Claude API는 소액 결제 크레딧 충전 후 사용할 수 있습니다.
-                """)
+                model_name = "claude-3-5-haiku-20241022"
 
-        st.caption("🔒 입력한 API 키는 서버에 저장되지 않고 본인 세션에만 임시 유지됩니다.")
+            key_input_id = f"api_key_input_{provider}"
+            if key_input_id not in st.session_state:
+                st.session_state[key_input_id] = st.session_state['api_key_store'].get(provider, "")
 
-        st.markdown("---")
-        st.header("📂 엑셀 파일 업로드")
-        st.caption("창체, 세특, 행특 엑셀 파일을 선택하여 업로드하세요.")
+            api_key = st.text_input(
+                f"{provider} API Key 입력",
+                type="password",
+                key=key_input_id,
+                help="Google AI Studio / OpenAI / Anthropic에서 발급받은 개인 API Key를 입력해 주세요."
+            )
+            st.session_state['api_key_store'][provider] = api_key
 
-        record_type = st.selectbox(
-            "업로드할 데이터 유형 선택",
-            ["세특 (세부능력 및 특기사항)", "창체 (창의적 체험활동)", "행특 (행동특성 및 종합의견)"]
-        )
-        
-        type_key = "세특" if "세특" in record_type else ("창체" if "창체" in record_type else "행특")
+            if st.button("API Key 삭제", key=f"btn_del_key_{provider}", help="입력한 API Key만 즉시 삭제하고 초기화합니다.", use_container_width=True):
+                st.session_state['api_key_store'][provider] = ""
+                st.session_state[key_input_id] = ""
+                st.rerun()
 
-        uploaded_file = st.file_uploader(
-            f"[{type_key}] 엑셀 파일 (.xlsx, .xls)",
-            type=["xlsx", "xls"],
-            key=f"file_{type_key}"
-        )
-
-        if uploaded_file is not None:
-            try:
-                raw_df = pd.read_excel(uploaded_file)
-                st.session_state['data_store']['raw_data'][type_key] = raw_df
-                if 'file_names' not in st.session_state['data_store']:
-                    st.session_state['data_store']['file_names'] = {}
-                st.session_state['data_store']['file_names'][type_key] = uploaded_file.name
-
-                df_processed, col_map = detect_columns(raw_df)
-                refined_df, logs = refine_student_records(df_processed, col_map)
-                
-                if type_key == "세특":
-                    final_df = split_subject_details(refined_df, col_map)
+            with st.expander(f"{provider} API Key 발급 가이드"):
+                if provider == "Gemini":
+                    st.markdown("""
+                    **Google Gemini API Key (무료)**
+                    1. [Google AI Studio](https://aistudio.google.com/) 접속 후 로그인
+                    2. **Dashboard -> API 키 -> Create API key** 클릭
+                    3. 생성된 키를 위의 입력란에 붙여넣기
+                    """)
+                elif provider == "OpenAI":
+                    st.markdown("""
+                    **OpenAI ChatGPT API Key**
+                    1. [OpenAI Platform](https://platform.openai.com/) 로그인
+                    2. **API Keys -> Create new secret key** 클릭 후 복사
+                    """)
                 else:
-                    final_df = refined_df.copy()
-                    content_c = col_map['content_col']
-                    final_df['글자수'] = get_safe_series(final_df, content_c).astype(str).apply(len)
+                    st.markdown("""
+                    **Anthropic Console API Key**
+                    1. [Anthropic Console](https://console.anthropic.com/) 접속 후 로그인
+                    2. **API Keys -> Create Key** 클릭 후 복사
+                    """)
 
-                st.session_state['data_store'][type_key] = {
-                    'df': final_df,
-                    'col_map': col_map
-                }
-                st.session_state['data_store']['merge_logs'][type_key] = logs
+        with st.expander("엑셀 파일 업로드", expanded=True):
+            record_type = st.selectbox(
+                "업로드할 데이터 유형 선택",
+                ["세특 (세부능력 및 특기사항)", "창체 (창의적 체험활동)", "행특 (행동특성 및 종합의견)"]
+            )
+            
+            type_key = "세특" if "세특" in record_type else ("창체" if "창체" in record_type else "행특")
 
-                num_c, name_c = col_map['num_col'], col_map['name_col']
-                num_series = get_safe_series(final_df, num_c)
-                name_series = get_safe_series(final_df, name_c)
-                unique_students_cnt = len(pd.DataFrame({'num': num_series, 'name': name_series}).drop_duplicates())
-                if type_key == "창체":
-                    st.sidebar.success(f"✅ {type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생, {len(final_df)}개 영역 기록)")
-                elif type_key == "세특":
-                    st.sidebar.success(f"✅ {type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생, {len(final_df)}개 과목 기록)")
-                else:
-                    st.sidebar.success(f"✅ {type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생)")
+            uploaded_file = st.file_uploader(
+                f"[{type_key}] 엑셀 파일 (.xlsx, .xls)",
+                type=["xlsx", "xls"],
+                key=f"file_{type_key}"
+            )
 
-            except Exception as e:
-                st.sidebar.error(f"❌ 파일 처리 오류: {str(e)}")
-                with st.expander("오류 상세 내용"):
-                    st.code(traceback.format_exc())
+            if uploaded_file is not None:
+                try:
+                    file_sig = f"{type_key}_{uploaded_file.name}_{uploaded_file.size}"
+                    if 'file_signatures' not in st.session_state:
+                        st.session_state['file_signatures'] = {}
+
+                    if st.session_state['file_signatures'].get(type_key) != file_sig:
+                        if st.session_state.get('llm_audit_results') is not None or st.session_state.get('has_audited', False):
+                            st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
+                            st.session_state['llm_audit_results'] = None
+                            st.session_state['has_audited'] = False
+                            st.sidebar.info("새 파일 업로드가 감지되어 이전 분석 결과 및 기존 데이터가 자동 초기화되었습니다.")
+
+                        st.session_state['file_signatures'][type_key] = file_sig
+
+                    raw_df = pd.read_excel(uploaded_file)
+                    
+                    actual_type, corr_msg = detect_actual_record_type(uploaded_file.name, raw_df, type_key)
+                    if corr_msg:
+                        st.sidebar.info(corr_msg)
+                    type_key = actual_type
+
+                    st.session_state['data_store']['raw_data'][type_key] = raw_df
+                    if 'file_names' not in st.session_state['data_store']:
+                        st.session_state['data_store']['file_names'] = {}
+                    st.session_state['data_store']['file_names'][type_key] = uploaded_file.name
+
+                    df_processed, col_map = detect_columns(raw_df)
+                    refined_df, logs = refine_student_records(df_processed, col_map)
+                    
+                    if type_key == "세특":
+                        final_df = split_subject_details(refined_df, col_map)
+                    else:
+                        final_df = refined_df.copy()
+                        content_c = col_map['content_col']
+                        final_df['글자수'] = get_safe_series(final_df, content_c).astype(str).apply(len)
+
+                    st.session_state['data_store'][type_key] = {
+                        'df': final_df,
+                        'col_map': col_map
+                    }
+                    st.session_state['data_store']['merge_logs'][type_key] = logs
+
+                    num_c, name_c = col_map['num_col'], col_map['name_col']
+                    num_series = get_safe_series(final_df, num_c)
+                    name_series = get_safe_series(final_df, name_c)
+                    unique_students_cnt = len(pd.DataFrame({'num': num_series, 'name': name_series}).drop_duplicates())
+                    if type_key == "창체":
+                        st.sidebar.success(f"{type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생, {len(final_df)}개 영역 기록)")
+                    elif type_key == "세특":
+                        st.sidebar.success(f"{type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생, {len(final_df)}개 과목 기록)")
+                    else:
+                        st.sidebar.success(f"{type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생)")
+
+                except Exception as e:
+                    st.sidebar.error(f"파일 처리 오류: {str(e)}")
+                    with st.expander("오류 상세 내용"):
+                        st.code(traceback.format_exc())
+
+        with st.expander("데이터 관리 메뉴", expanded=False):
+            manage_mode = st.radio(
+                "메뉴 기능 선택",
+                [
+                    "메인 AI 정밀 검증",
+                    "학생별 통합 조회", 
+                    "페이지 나눔 정제 검증", 
+                    "데이터 분석 & 통계"
+                ],
+                key="sidebar_manage_mode_radio"
+            )
 
         st.sidebar.markdown("---")
-        if st.sidebar.button("🔄 전체 데이터 & 분석 결과 초기화", use_container_width=True, help="업로드된 모든 생기부 파일과 AI 검증 결과를 초기화하고 새로 시작합니다."):
+        if st.sidebar.button("분석 결과 초기화", use_container_width=True, help="업로드된 모든 생기부 파일과 AI 검증 결과를 초기화하고 새로 시작합니다."):
             st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
             st.session_state['llm_audit_results'] = None
+            st.session_state['has_audited'] = False
+            st.session_state['file_signatures'] = {}
             st.rerun()
 
+    available_types = [k for k in ['창체', '세특', '행특'] if st.session_state['data_store'].get(k) is not None]
+
     # --------------------------------------------------------------------------
-    # 메인 콘텐츠 영역 (Tabs)
+    # MODE 1: 메인 AI 정밀 검증 & 리포트 다운로드
     # --------------------------------------------------------------------------
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "🚨 AI(LLM) 오탈자 정밀 검증", 
-        "🔍 학생별 통합 조회", 
-        "🛠️ 페이지 나눔 정제 검증", 
-        "📊 데이터 분석 & 통계", 
-        "📥 엑셀 통합 다운로드"
-    ])
-
-    # ==========================================================================
-    # Tab 1: 🚨 AI(LLM) 오탈자 & 지침 정밀 검증 (최우선 메인 탭)
-    # ==========================================================================
-    with tab1:
-        st.subheader("🚨 AI (LLM) 기반 생기부 오탈자·맞춤법 및 지침 정밀 검증 리포트")
-        st.caption("AI(Gemini/OpenAI/Claude)가 지침 문서(`학교생활기록부_기재_및_검증_지침.md`)의 원칙을 바탕으로 오탈자, 맞춤법/문법 오류, 입력불가 용어, 금지어를 정밀 검출합니다.")
-
-        available_types = [k for k in ['창체', '세특', '행특'] if st.session_state['data_store'].get(k) is not None]
-
+    if manage_mode == "메인 AI 정밀 검증":
         if not available_types:
-            st.warning("👈 먼저 사이드바에서 생기부 엑셀 파일을 업로드해 주세요.")
+            st.markdown("""
+                <div style="text-align: center; padding: 3.2rem 1.5rem; background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 16px; margin: 1rem 0;">
+                    <h3 style="font-size: 1.15rem; font-weight: 700; color: #1E293B; margin-bottom: 0.4rem;">업로드된 생활기록부 엑셀 파일이 없습니다</h3>
+                    <p style="font-size: 0.9rem; color: #64748B; margin: 0;">왼쪽 사이드바에서 세특, 창체, 또는 행특 엑셀 파일을 업로드해 주세요.</p>
+                </div>
+            """, unsafe_allow_html=True)
         else:
-            col_b1, col_b2, col_b3 = st.columns([2, 1, 1])
+            col_b1, col_b2 = st.columns([3, 1])
             with col_b1:
-                st.info("💡 사이드바에 API Key를 입력한 후 아래 [AI 정밀 분석 실행] 버튼을 클릭하세요.")
+                btn_run_llm = st.button("AI 정밀 분석 실행", type="primary", use_container_width=True)
             with col_b2:
-                btn_run_llm = st.button("🚀 AI 정밀 분석 실행", type="primary", use_container_width=True)
-            with col_b3:
-                btn_reset_main = st.button("🔄 전체 초기화", use_container_width=True, help="업로드된 데이터와 AI 분석 결과를 모두 지우고 초기 상태로 되돌립니다.")
+                btn_reset_main = st.button("전체 데이터 초기화", use_container_width=True, help="업로드된 데이터와 AI 분석 결과를 모두 지우고 초기 상태로 되돌립니다.")
                 if btn_reset_main:
                     st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
                     st.session_state['llm_audit_results'] = None
+                    st.session_state['has_audited'] = False
+                    st.session_state['file_signatures'] = {}
                     st.rerun()
 
             if btn_run_llm:
                 if not api_key:
-                    st.error("⚠️ AI API Key가 입력되지 않았습니다. 사이드바에서 API Key를 입력해 주세요.")
+                    st.error("AI API Key가 입력되지 않았습니다. 사이드바에서 API Key를 입력해 주세요.")
                 else:
                     progress_container = st.container()
                     with progress_container:
@@ -1314,7 +1672,7 @@ def main():
                         def update_progress(current_b, total_b):
                             pct = current_b / total_b
                             progress_bar.progress(pct)
-                            status_text.info(f"🤖 AI 정밀 검사 진행 중... [{current_b}/{total_b} 배치 완료] (250k 쿼터 보호 분할 처리)")
+                            status_text.info(f"AI 정밀 검사 진행 중... [{current_b}/{total_b} 배치 완료] (250k 쿼터 보호 분할 처리)")
 
                         try:
                             records_payload = prepare_records_for_llm(st.session_state['data_store'])
@@ -1322,7 +1680,6 @@ def main():
                             progress_bar.progress(1.0)
                             status_text.empty()
                             
-                            # 데이터프레임 변환
                             audit_rows = []
                             for item in raw_findings:
                                 audit_rows.append({
@@ -1339,34 +1696,40 @@ def main():
 
                             if audit_rows:
                                 res_df = pd.DataFrame(audit_rows)
-                                res_df = res_df.sort_values(by=["학번", "이름"], ascending=True).reset_index(drop=True)
+                                sev_rank_map = {
+                                    "수정 필수": 1, "수정필수": 1,
+                                    "수정 권장": 2, "수정 권고": 2, "수정권장": 2, "수정권고": 2
+                                }
+                                res_df['_sev_rank'] = res_df['수정구분'].map(lambda x: sev_rank_map.get(str(x).strip(), 3))
+                                res_df = res_df.sort_values(by=['_sev_rank', '학번', '이름'], ascending=[True, True, True]).reset_index(drop=True)
+                                res_df = res_df.drop(columns=['_sev_rank'])
                                 st.session_state['llm_audit_results'] = res_df
                             else:
                                 st.session_state['llm_audit_results'] = pd.DataFrame(columns=[
                                     "학번", "이름", "구분", "이수학년", "세부", "수정전", "수정 후", "수정해야하는 이유나 근거", "수정구분"
                                 ])
+                            st.session_state['has_audited'] = True
 
-                            st.success("✅ AI 정밀 검사 완료!")
+                            st.success("AI 정밀 검사 완료!")
 
                         except Exception as e:
-                            st.error(f"❌ AI 분석 중 오류가 발생했습니다: {str(e)}")
+                            st.error(f"AI 분석 중 오류가 발생했습니다: {str(e)}")
                             with st.expander("상세 에러 내역"):
                                 st.code(traceback.format_exc())
 
-            # 분석 결과 출력
             audit_df = st.session_state.get('llm_audit_results')
 
-            if audit_df is not None:
-                req_cnt = len(audit_df[audit_df['수정구분'] == '수정 필수']) if not audit_df.empty else 0
-                rec_cnt = len(audit_df[audit_df['수정구분'] == '수정 권장']) if not audit_df.empty else 0
+            if audit_df is not None and st.session_state.get('has_audited', False):
+                req_cnt = len(audit_df[audit_df['수정구분'].str.contains('필수', na=False)]) if not audit_df.empty else 0
+                rec_cnt = len(audit_df[audit_df['수정구분'].str.contains('권장|권고', na=False)]) if not audit_df.empty else 0
 
                 col_m1, col_m2, col_m3, col_m4 = st.columns(4)
                 with col_m1:
                     st.markdown(f'<div class="metric-card"><div class="val" style="color:#DC2626;">{len(audit_df)}</div><div class="lbl">총 검출 오류 건수</div></div>', unsafe_allow_html=True)
                 with col_m2:
-                    st.markdown(f'<div class="metric-card"><div class="val" style="color:#EF4444;">{req_cnt}</div><div class="lbl">🚨 수정 필수 (지침 위반/오타)</div></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="metric-card"><div class="val" style="color:#EF4444;">{req_cnt}</div><div class="lbl">수정 필수 (지침 위반/오타)</div></div>', unsafe_allow_html=True)
                 with col_m3:
-                    st.markdown(f'<div class="metric-card"><div class="val" style="color:#F59E0B;">{rec_cnt}</div><div class="lbl">⚠️ 수정 권장 (어미/문맥)</div></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="metric-card"><div class="val" style="color:#F59E0B;">{rec_cnt}</div><div class="lbl">수정 권장 (어미/문맥)</div></div>', unsafe_allow_html=True)
                 with col_m4:
                     st.markdown(f'<div class="metric-card"><div class="val" style="color:#10B981;">{provider} AI</div><div class="lbl">사용된 분석 엔진</div></div>', unsafe_allow_html=True)
 
@@ -1374,7 +1737,7 @@ def main():
 
                 if audit_df.empty:
                     st.balloons()
-                    st.success("🎉 AI 검사 결과, 검출된 오탈자나 기재 지침 위반 항목이 없습니다.")
+                    st.success("AI 검사 결과, 검출된 오탈자나 기재 지침 위반 항목이 없습니다.")
                 else:
                     col_f1, col_f2 = st.columns([2, 3])
                     with col_f1:
@@ -1384,9 +1747,9 @@ def main():
 
                     filtered_df = audit_df.copy()
                     if filter_cat == "수정 필수만 보기":
-                        filtered_df = filtered_df[filtered_df["수정구분"] == "수정 필수"]
+                        filtered_df = filtered_df[filtered_df["수정구분"].str.contains('필수', na=False)]
                     elif filter_cat == "수정 권장만 보기":
-                        filtered_df = filtered_df[filtered_df["수정구분"] == "수정 권장"]
+                        filtered_df = filtered_df[filtered_df["수정구분"].str.contains('권장|권고', na=False)]
 
                     if search_keyword.strip():
                         kw = search_keyword.strip()
@@ -1394,49 +1757,106 @@ def main():
                             filtered_df["학번"].astype(str).str.contains(kw) | filtered_df["이름"].astype(str).str.contains(kw)
                         ]
 
-                    st.markdown("### 📋 AI 오탈자 및 검증 결과 표 (학번순 정렬)")
-                    st.dataframe(filtered_df, use_container_width=True, height=450)
+                    filtered_df.index = range(1, len(filtered_df) + 1)
+                    st.markdown("### AI 오탈자 및 검증 결과 표")
+                    st.dataframe(filtered_df, use_container_width=True, height=420)
 
-                    # 동적 파일명 생성 (예: 생기부_검증_창체_1반.xlsx / .pdf)
+                    st.markdown("---")
+                    st.markdown("### 검증 리포트 & 데이터 다운로드")
+
+                    req_df_out = filtered_df[filtered_df['수정구분'].str.contains('필수', na=False)]
+                    rec_df_out = filtered_df[filtered_df['수정구분'].str.contains('권장|권고', na=False)]
+
                     file_names = st.session_state['data_store'].get('file_names', {})
                     base_names = [os.path.splitext(file_names[t])[0] for t in available_types if t in file_names]
-                    prefix = f"생기부_검증_{'_'.join(base_names)}" if base_names else "생기부_검증_리포트"
+                    prefix = f"생기부_{'_'.join(base_names)}" if base_names else "생기부"
 
-                    excel_out_fname = f"{prefix}.xlsx"
-                    pdf_out_fname = f"{prefix}.pdf"
+                    c_dl1, c_dl2 = st.columns(2)
 
-                    col_dl1, col_dl2 = st.columns(2)
-                    with col_dl1:
-                        audit_excel_bytes = create_audit_report_excel_bytes(filtered_df)
+                    with c_dl1:
+                        st.markdown(f"#### 수정 필수 ({len(req_df_out)}건)")
+                        b1, b2 = st.columns(2)
+                        with b1:
+                            st.download_button(
+                                "엑셀 (.xlsx)",
+                                data=create_audit_report_excel_bytes(req_df_out),
+                                file_name=f"{prefix}_수정필수.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="dl_req_excel",
+                                use_container_width=True,
+                                disabled=req_df_out.empty
+                            )
+                        with b2:
+                            st.download_button(
+                                "PDF (.pdf)",
+                                data=create_audit_report_pdf_bytes(req_df_out),
+                                file_name=f"{prefix}_수정필수.pdf",
+                                mime="application/pdf",
+                                key="dl_req_pdf",
+                                use_container_width=True,
+                                disabled=req_df_out.empty
+                            )
+
+                    with c_dl2:
+                        st.markdown(f"#### 수정 권고 ({len(rec_df_out)}건)")
+                        b3, b4 = st.columns(2)
+                        with b3:
+                            st.download_button(
+                                "엑셀 (.xlsx)",
+                                data=create_audit_report_excel_bytes(rec_df_out),
+                                file_name=f"{prefix}_수정권고.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="dl_rec_excel",
+                                use_container_width=True,
+                                disabled=rec_df_out.empty
+                            )
+                        with b4:
+                            st.download_button(
+                                "PDF (.pdf)",
+                                data=create_audit_report_pdf_bytes(rec_df_out),
+                                file_name=f"{prefix}_수정권고.pdf",
+                                mime="application/pdf",
+                                key="dl_rec_pdf",
+                                use_container_width=True,
+                                disabled=rec_df_out.empty
+                            )
+
+                    st.markdown("<div style='margin-top: 0.6rem;'></div>", unsafe_allow_html=True)
+                    c_dl3, c_dl4 = st.columns(2)
+
+                    with c_dl3:
+                        st.markdown(f"#### 전체 통합 검증 ({len(filtered_df)}건)")
                         st.download_button(
-                            label=f"💾 {excel_out_fname} 다운로드 (.xlsx)",
-                            data=audit_excel_bytes,
-                            file_name=excel_out_fname,
+                            "엑셀 (.xlsx)",
+                            data=create_audit_report_excel_bytes(filtered_df),
+                            file_name=f"{prefix}_전체리포트.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="dl_tab1_audit_excel",
-                            use_container_width=True
+                            key="dl_all_excel",
+                            use_container_width=True,
+                            disabled=filtered_df.empty
                         )
-                    with col_dl2:
-                        audit_pdf_bytes = create_audit_report_pdf_bytes(filtered_df)
-                        st.download_button(
-                            label=f"📄 {pdf_out_fname} 다운로드 (.pdf)",
-                            data=audit_pdf_bytes,
-                            file_name=pdf_out_fname,
-                            mime="application/pdf",
-                            key="dl_tab1_audit_pdf",
-                            use_container_width=True
-                        )
-            else:
-                st.info("👆 [AI 정밀 분석 실행] 버튼을 눌러 AI 검증을 시작하세요.")
 
-    # ==========================================================================
-    # Tab 2: 학생별 통합 조회
-    # ==========================================================================
-    with tab2:
-        st.subheader("👤 학생별 생기부 기록 통합 뷰어")
+                    with c_dl4:
+                        available_exports = {t: st.session_state['data_store'][t]['df'] for t in available_types if t in st.session_state['data_store']}
+                        st.markdown(f"#### 정제 원본 데이터 ({', '.join(available_exports.keys())})")
+                        st.download_button(
+                            "엑셀 (.xlsx)",
+                            data=create_formatted_excel_bytes(available_exports),
+                            file_name=f"{prefix}_정제원본.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="dl_clean_excel",
+                            use_container_width=True,
+                            disabled=not available_exports
+                        )
+
+    # --------------------------------------------------------------------------
+    # MODE 2: 학생별 통합 조회 (관리 메뉴 모드)
+    # --------------------------------------------------------------------------
+    elif manage_mode == "학생별 통합 조회":
+        st.subheader("학생별 생기부 기록 통합 뷰어")
 
         if not available_types:
-            st.warning("👈 먼저 사이드바에서 생기부 엑셀 파일을 업로드해 주세요.")
+            st.warning("먼저 사이드바에서 생기부 엑셀 파일을 업로드해 주세요.")
         else:
             student_set = set()
             for t_key in available_types:
@@ -1462,7 +1882,7 @@ def main():
 
                 if selected_student:
                     target_num, target_name = selected_student
-                    st.markdown(f"### 📋 {target_name} 학생의 기록 모음")
+                    st.markdown(f"### {target_name} 학생의 기록 모음")
 
                     sub_tab_c, sub_tab_s, sub_tab_h = st.tabs(["창체 기록", "세특 기록", "행특 기록"])
 
@@ -1477,7 +1897,7 @@ def main():
                                     st.markdown(f"""
                                         <div class="student-card">
                                             <span class="subject-badge">창의적 체험활동</span>
-                                            <span class="char-badge">📏 {len(content_text)}자</span>
+                                            <span class="char-badge">{len(content_text)}자</span>
                                             <p style="margin-top:0.6rem; color:#334155; line-height:1.6;">{content_text}</p>
                                         </div>
                                     """, unsafe_allow_html=True)
@@ -1496,8 +1916,8 @@ def main():
                                     char_cnt = rec.get('글자수', len(content_text))
                                     st.markdown(f"""
                                         <div class="student-card" style="border-left-color:#10B981;">
-                                            <span class="subject-badge" style="background-color:#10B981;">📚 {subj}</span>
-                                            <span class="char-badge">📏 {char_cnt}자</span>
+                                            <span class="subject-badge" style="background-color:#10B981;">{subj}</span>
+                                            <span class="char-badge">{char_cnt}자</span>
                                             <p style="margin-top:0.6rem; color:#334155; line-height:1.6;">{content_text}</p>
                                         </div>
                                     """, unsafe_allow_html=True)
@@ -1514,19 +1934,19 @@ def main():
                                     content_text = rec[h_map['content_col']]
                                     st.markdown(f"""
                                         <div class="student-card" style="border-left-color:#8B5CF6;">
-                                            <span class="subject-badge" style="background-color:#8B5CF6;">🌟 행동특성 및 종합의견</span>
-                                            <span class="char-badge">📏 {len(content_text)}자</span>
+                                            <span class="subject-badge" style="background-color:#8B5CF6;">행동특성 및 종합의견</span>
+                                            <span class="char-badge">{len(content_text)}자</span>
                                             <p style="margin-top:0.6rem; color:#334155; line-height:1.6;">{content_text}</p>
                                         </div>
                                     """, unsafe_allow_html=True)
                             else:
                                 st.info("해당 학생의 행특 기록이 없습니다.")
 
-    # ==========================================================================
-    # Tab 3: 페이지 나눔 정제 검증
-    # ==========================================================================
-    with tab3:
-        st.subheader("🛠️ 지능형 페이지 나눔 정제 대조 검증")
+    # --------------------------------------------------------------------------
+    # MODE 3: 페이지 나눔 정제 검증 (관리 메뉴 모드)
+    # --------------------------------------------------------------------------
+    elif manage_mode == "페이지 나눔 정제 검증":
+        st.subheader("지능형 페이지 나눔 정제 대조 검증")
         st.caption("페이지 나눔으로 인해 쪼개졌던 행들이 유실 없이 올바르게 병합되었는지 검증합니다.")
 
         inspect_type = st.radio("검증할 데이터 선택", ["세특", "창체", "행특"], horizontal=True)
@@ -1548,7 +1968,7 @@ def main():
                 st.markdown(f'<div class="metric-card"><div class="val" style="color:#0EA5E9;">100.0%</div><div class="lbl">텍스트 데이터 보존율</div></div>', unsafe_allow_html=True)
 
             st.markdown("---")
-            st.markdown("### 🧩 병합 처리된 행 상세 내역")
+            st.markdown("### 병합 처리된 행 상세 내역")
             if logs:
                 log_df = pd.DataFrame(logs)
                 log_df.columns = ["엑셀 행 번호", "대상 학생", "밀려 내려온 서술문", "결합 후 문장 끝 부분 요약"]
@@ -1557,19 +1977,17 @@ def main():
                 st.success("페이지 나눔으로 인해 밀려 내려온 행이 없습니다. (클린 데이터)")
 
             st.markdown("---")
-            st.markdown("### 📊 정제 완료 데이터 테이블 프리뷰")
-            display_df = refined_df.copy()
-            drop_internal = [c for c in display_df.columns if str(c).startswith('_')]
-            display_df = display_df.drop(columns=drop_internal)
+            st.markdown("### 정제 완료 데이터 테이블 프리뷰")
+            display_df = clean_display_dataframe(refined_df)
             st.dataframe(display_df, use_container_width=True, height=400)
         else:
             st.info(f"[{inspect_type}] 파일이 업로드되지 않았습니다.")
 
-    # ==========================================================================
-    # Tab 4: 데이터 분석 & 통계
-    # ==========================================================================
-    with tab4:
-        st.subheader("📊 학생 기록 현황 분석 & 통계")
+    # --------------------------------------------------------------------------
+    # MODE 4: 데이터 분석 & 통계 (관리 메뉴 모드)
+    # --------------------------------------------------------------------------
+    elif manage_mode == "데이터 분석 & 통계":
+        st.subheader("학생 기록 현황 분석 & 통계")
         inspect_type_stat = st.radio("분석할 데이터 선택", ["세특", "창체", "행특"], key="stat_radio", horizontal=True)
 
         if inspect_type_stat in st.session_state['data_store'] and st.session_state['data_store'][inspect_type_stat] is not None:
@@ -1581,16 +1999,16 @@ def main():
             if inspect_type_stat == "세특" and '과목명' in df_stat.columns:
                 col_chart1, col_chart2 = st.columns(2)
                 with col_chart1:
-                    st.markdown("#### 📚 과목별 기록 분포")
+                    st.markdown("#### 과목별 기록 분포")
                     subj_counts = df_stat['과목명'].value_counts()
                     st.bar_chart(subj_counts)
                 with col_chart2:
-                    st.markdown("#### 📏 과목별 평균 글자 수")
+                    st.markdown("#### 과목별 평균 글자 수")
                     avg_chars = df_stat.groupby('과목명')['글자수'].mean().round(1)
                     st.bar_chart(avg_chars)
 
                 st.markdown("---")
-                st.markdown("#### 👨‍🎓 학생별 세특 작성 과목 수 및 총 글자 수")
+                st.markdown("#### 학생별 세특 작성 과목 수 및 총 글자 수")
                 student_summary = df_stat.groupby(name_c).agg(
                     과목수=('과목명', 'count'),
                     총글자수=('글자수', 'sum'),
@@ -1600,66 +2018,12 @@ def main():
                 st.dataframe(student_summary, use_container_width=True)
             else:
                 content_c = col_map['content_col']
-                st.markdown("#### 👨‍🎓 학생별 기록 글자 수 분포")
+                st.markdown("#### 학생별 기록 글자 수 분포")
                 df_stat['글자수'] = df_stat[content_c].astype(str).apply(len)
                 char_chart_df = df_stat[[name_c, '글자수']].set_index(name_c)
                 st.bar_chart(char_chart_df)
         else:
             st.info("분석할 데이터 파일이 업로드되지 않았습니다.")
-
-    # ==========================================================================
-    # Tab 5: 엑셀 통합 다운로드
-    # ==========================================================================
-    with tab5:
-        st.subheader("📥 엑셀 파일 다운로드")
-        st.write("AI 오탈자 검증 리포트 및 정제 완료 데이터를 엑셀 파일로 각각 다운로드할 수 있습니다.")
-
-        available_exports = {}
-        for t_key in ["창체", "세특", "행특"]:
-            if t_key in st.session_state['data_store'] and st.session_state['data_store'][t_key] is not None:
-                available_exports[t_key] = st.session_state['data_store'][t_key]['df']
-
-        if available_exports:
-            audit_df = st.session_state.get('llm_audit_results')
-            file_names = st.session_state['data_store'].get('file_names', {})
-            base_names = [os.path.splitext(file_names[t])[0] for t in available_exports.keys() if t in file_names]
-            prefix = f"{'_'.join(base_names)}" if base_names else "통합데이터"
-
-            audit_out_fname = f"생기부_검증_{prefix}.xlsx"
-            data_out_fname = f"생기부_정제_{prefix}.xlsx"
-
-            col_d1, col_d2 = st.columns(2)
-            
-            with col_d1:
-                st.markdown("### 🚨 AI 오탈자 & 지침 검증 리포트")
-                if audit_df is not None:
-                    st.write(f"총 {len(audit_df)}건의 검출 항목이 포함된 엑셀 리포트입니다.")
-                    audit_bytes = create_audit_report_excel_bytes(audit_df)
-                    st.download_button(
-                        label=f"💾 {audit_out_fname} 다운로드 (.xlsx)",
-                        data=audit_bytes,
-                        file_name=audit_out_fname,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="dl_tab5_audit_excel",
-                        use_container_width=True
-                    )
-                else:
-                    st.info("첫 번째 탭에서 [AI 정밀 분석 실행]을 먼저 진행해 주세요.")
-
-            with col_d2:
-                st.markdown("### 📄 정제 완료 통합 생기부 데이터")
-                st.write(f"포함 시트: {', '.join(available_exports.keys())}")
-                excel_bytes = create_formatted_excel_bytes(available_exports)
-                st.download_button(
-                    label=f"💾 {data_out_fname} 다운로드 (.xlsx)",
-                    data=excel_bytes,
-                    file_name=data_out_fname,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="dl_tab5_clean_excel",
-                    use_container_width=True
-                )
-        else:
-            st.warning("다운로드할 데이터가 없습니다. 사이드바에서 엑셀 파일을 먼저 업로드해 주세요.")
 
 
 if __name__ == "__main__":
