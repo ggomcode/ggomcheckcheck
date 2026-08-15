@@ -1581,6 +1581,7 @@ def main():
                     """)
 
         with st.expander("엑셀 파일 업로드", expanded=True):
+            st.caption("📌 NEIS **[학교생활기록부 ➔ 영역별 조회]**에서 창의적체험활동, 교과학습발달상황(세특), 행동특성및종합의견을 **xls data** 형식으로 다운로드해 업로드하세요.")
             uploaded_files = st.file_uploader(
                 "생기부 엑셀 파일 (.xlsx, .xls)",
                 type=["xlsx", "xls"],
@@ -1672,9 +1673,18 @@ def main():
     if manage_mode == "메인 AI 정밀 검증":
         if not available_types:
             st.markdown("""
-                <div style="text-align: center; padding: 3.2rem 1.5rem; background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 16px; margin: 1rem 0;">
+                <div style="text-align: center; padding: 2.8rem 1.5rem; background: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 16px; margin: 1rem 0;">
                     <h3 style="font-size: 1.15rem; font-weight: 700; color: #1E293B; margin-bottom: 0.4rem;">업로드된 생활기록부 엑셀 파일이 없습니다</h3>
-                    <p style="font-size: 0.9rem; color: #64748B; margin: 0;">왼쪽 사이드바에서 세특, 창체, 또는 행특 엑셀 파일을 업로드해 주세요.</p>
+                    <p style="font-size: 0.9rem; color: #64748B; margin-bottom: 1rem;">왼쪽 사이드바에서 세특, 창체, 또는 행특 엑셀 파일을 업로드해 주세요.</p>
+                    <div style="display: inline-block; text-align: left; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 0.9rem 1.2rem; font-size: 0.85rem; color: #475569; max-width: 600px; line-height: 1.6;">
+                        📌 <b>NEIS 엑셀 파일 다운로드 안내</b><br>
+                        나이스(NEIS) <b>학교생활기록부 ➔ 영역별 조회</b>에서 아래 영역을 <b>xls data</b> 형식으로 다운로드해 사용해 주세요.
+                        <ul style="margin: 0.4rem 0 0 1.2rem; padding: 0;">
+                            <li><b>창의적체험활동</b></li>
+                            <li><b>교과학습발달상황</b> (세부능력및특기사항)</li>
+                            <li><b>행동특성및종합의견</b></li>
+                        </ul>
+                    </div>
                 </div>
             """, unsafe_allow_html=True)
         else:
