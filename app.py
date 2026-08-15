@@ -10,6 +10,14 @@ import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
 # ==============================================================================
 # 페이지 기본 설정 & CSS 커스텀 스타일링
 # ==============================================================================
@@ -621,10 +629,9 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
 # ==============================================================================
 def prepare_records_for_llm(data_store: dict) -> list:
     """
-    LLM API에 전달할 [학번, 이름, 구분, 세부, 기록 텍스트] 페이로드 리스트를 만듭니다.
+    LLM API에 전달할 [학번, 이름, 구분, 세부, 이수시간, 기록 텍스트] 페이로드 리스트를 만듭니다.
     """
     records_payload = []
-    category_map = {"창체": "창체", "세특": "세특", "행특": "행발"}
 
     for t_key in ["창체", "세특", "행특"]:
         if t_key not in data_store or data_store[t_key] is None:
@@ -643,6 +650,13 @@ def prepare_records_for_llm(data_store: dict) -> list:
                 student_id = f"101{int(num_str):02d}"
             else:
                 student_id = num_str.zfill(5) if num_str else "00000"
+
+            # 이수시간 추출 (시간 컬럼이 존재할 경우)
+            hours_val = ""
+            for h_col in ['시간', '시 간', '이수시간']:
+                if h_col in row and pd.notna(row[h_col]):
+                    hours_val = str(row[h_col]).strip()
+                    break
 
             if t_key == "창체":
                 sub_cat = str(row.get('영역', row.get('활동영역', '자율/동아리/진로'))).strip()
@@ -664,20 +678,39 @@ def prepare_records_for_llm(data_store: dict) -> list:
 
 
 # ==============================================================================
-# 8. 서식 스타일 적용 엑셀 내보내기 함수 (Openpyxl)
+# 8. 서식 스타일 적용 엑셀 내보내기 함수 (Openpyxl - A4 가로인쇄, 15mm 여백)
 # ==============================================================================
 def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
     output = io.BytesIO()
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "AI 오탈자 및 지침 검증 리포트"
+    ws.title = "AI_오탈자_검증_리포트"
 
-    header_fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
+    # A4 Landscape 설정 & 15mm Margins (15mm / 25.4 = 0.591 inches)
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_margins.left = 0.59
+    ws.page_margins.right = 0.59
+    ws.page_margins.top = 0.59
+    ws.page_margins.bottom = 0.59
+
+    # 오른쪽 하단 꼬리말 (페이지/전체페이지)
+    ws.oddFooter.right.text = "&P/&N"
+    ws.evenFooter.right.text = "&P/&N"
+    ws.views.sheetView[0].showGridLines = True
+
+    # 10pt 기준 폰트 및 스타일
+    header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
     header_font = Font(name="맑은 고딕", size=10, bold=True, color="FFFFFF")
-    body_font = Font(name="맑은 고딕", size=9.5)
-    center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    left_align = Alignment(horizontal="left", vertical="center", wrap_text=True)
-    
+    body_font = Font(name="맑은 고딕", size=10)
+    font_red = Font(name="맑은 고딕", size=10, bold=True, color="990000")
+    font_amber = Font(name="맑은 고딕", size=10, bold=True, color="92400E")
+
+    fill_even = PatternFill(start_color="F9FAFB", end_color="F9FAFB", fill_type="solid")
+    fill_odd = PatternFill(start_color="FFFFFF", end_color="FFFFFF", fill_type="solid")
+    fill_required = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    fill_recommended = PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid")
+
     thin_border = Border(
         left=Side(style='thin', color='CBD5E1'),
         right=Side(style='thin', color='CBD5E1'),
@@ -685,47 +718,193 @@ def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
         bottom=Side(style='thin', color='CBD5E1')
     )
 
-    headers = list(audit_df.columns)
+    headers = ["학년", "반", "번호", "학번", "이름", "구분", "세부", "이수시간", "원문 (수정 전)", "수정 후 (제안)", "수정 이유/근거", "수정구분"]
     ws.append(headers)
 
     ws.row_dimensions[1].height = 28
-    for c_idx, header in enumerate(headers, 1):
+    for c_idx in range(1, len(headers) + 1):
         cell = ws.cell(row=1, column=c_idx)
         cell.fill = header_fill
         cell.font = header_font
-        cell.alignment = center_align
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = thin_border
 
-    for row in audit_df.itertuples(index=False):
-        ws.append(list(row))
+    for row_idx, r in enumerate(audit_df.to_dict('records'), start=2):
+        s_id = str(r.get("학번", r.get("학번(숫자5자리)", "00000")))
+        grade = s_id[0] if len(s_id) == 5 and s_id[0].isdigit() else ""
+        ban = str(int(s_id[1:3])) if len(s_id) == 5 and s_id[1:3].isdigit() else ""
+        num = str(int(s_id[3:])) if len(s_id) == 5 and s_id[3:].isdigit() else ""
 
-    for r_idx in range(2, ws.max_row + 1):
-        ws.row_dimensions[r_idx].height = 36
-        for c_idx in range(1, ws.max_column + 1):
-            cell = ws.cell(row=r_idx, column=c_idx)
+        row_values = [
+            grade,
+            ban,
+            num,
+            s_id,
+            r.get("이름", ""),
+            r.get("구분", ""),
+            r.get("세부", ""),
+            r.get("이수시간", r.get("시간", "")),
+            r.get("수정전", ""),
+            r.get("수정 후", ""),
+            r.get("수정해야하는 이유나 근거", ""),
+            r.get("수정구분", "")
+        ]
+        ws.append(row_values)
+
+        row_fill = fill_even if row_idx % 2 == 0 else fill_odd
+        mod_type = str(r.get("수정구분", ""))
+
+        for col_idx in range(1, len(row_values) + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
             cell.font = body_font
+            cell.fill = row_fill
             cell.border = thin_border
             
-            col_name = headers[c_idx - 1]
-            if col_name in ["학번", "이름", "구분", "세부", "수정구분"]:
-                cell.alignment = center_align
-                if col_name == "수정구분":
-                    if cell.value == "수정 필수":
-                        cell.font = Font(name="맑은 고딕", size=9.5, bold=True, color="DC2626")
-                    else:
-                        cell.font = Font(name="맑은 고딕", size=9.5, bold=True, color="D97706")
+            if col_idx in [1, 2, 3, 4, 5, 6, 7, 8, 12]:
+                cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
-                cell.alignment = left_align
+                cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+
+            if col_idx == 12:
+                if "필수" in mod_type:
+                    cell.fill = fill_required
+                    cell.font = font_red
+                elif "권장" in mod_type:
+                    cell.fill = fill_recommended
+                    cell.font = font_amber
 
     col_widths = {
-        "학번": 12, "이름": 12, "구분": 10, "세부": 16,
-        "수정전": 28, "수정 후": 28, "수정해야하는 이유나 근거": 45, "수정구분": 12
+        'A': 6, 'B': 6, 'C': 6, 'D': 9, 'E': 9, 'F': 8, 'G': 12, 'H': 9,
+        'I': 52, # 원문 (Wide)
+        'J': 32, # 수정 후 (Medium)
+        'K': 32, # 수정 이유 (Medium)
+        'L': 11  # 수정구분 (Narrow)
     }
-    for c_idx, header in enumerate(headers, 1):
-        col_letter = get_column_letter(c_idx)
-        ws.column_dimensions[col_letter].width = col_widths.get(header, 18)
+
+    for col_letter, width in col_widths.items():
+        ws.column_dimensions[col_letter].width = width
 
     wb.save(output)
     return output.getvalue()
+
+
+# ==============================================================================
+# 9. PDF 인쇄용 내보내기 함수 (ReportLab - A4 가로인쇄, 15mm 여백, 페이지 꼬리말)
+# ==============================================================================
+def register_korean_font():
+    font_path = "C:\\Windows\\Fonts\\malgun.ttf"
+    if os.path.exists(font_path):
+        try:
+            pdfmetrics.registerFont(TTFont("Malgun", font_path))
+            return "Malgun"
+        except Exception:
+            pass
+    return "Helvetica"
+
+
+class NumberedCanvas(canvas.Canvas):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        num_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self.draw_page_number(num_pages)
+            super().showPage()
+        super().save()
+
+    def draw_page_number(self, page_count):
+        self.saveState()
+        font_name = register_korean_font()
+        self.setFont(font_name, 9)
+        self.setFillColor(colors.HexColor("#4B5563"))
+        page_text = f"({self._pageNumber}/{page_count})"
+        self.drawRightString(841.89 - 42.52, 20, page_text)
+        self.restoreState()
+
+
+def create_audit_report_pdf_bytes(audit_df: pd.DataFrame) -> bytes:
+    font_name = register_korean_font()
+    buffer = io.BytesIO()
+    margin_pt = 42.52 # 15mm
+    
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=landscape(A4),
+        leftMargin=margin_pt,
+        rightMargin=margin_pt,
+        topMargin=margin_pt,
+        bottomMargin=margin_pt + 15
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'PDFDocTitle',
+        parent=styles['Heading1'],
+        fontName=font_name,
+        fontSize=13,
+        leading=16,
+        textColor=colors.HexColor("#1E3A8A"),
+        spaceAfter=8
+    )
+    cell_style = ParagraphStyle(
+        'PDFCellText',
+        fontName=font_name,
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#1F2937")
+    )
+    header_cell_style = ParagraphStyle(
+        'PDFHeaderCellText',
+        fontName=font_name,
+        fontSize=8,
+        leading=10,
+        textColor=colors.white,
+        alignment=1
+    )
+
+    elements = []
+    elements.append(Paragraph("학교생활기록부 AI 오탈자 및 지침 검증 리포트", title_style))
+    elements.append(Spacer(1, 6))
+
+    headers = ["학번", "이름", "구분", "세부", "수정전 (원문)", "수정 후 (제안)", "수정 사유/근거", "수정구분"]
+    table_data = [[Paragraph(h, header_cell_style) for h in headers]]
+    col_widths = [45, 45, 38, 55, 230, 155, 140, 48.85]
+
+    for idx, row in audit_df.iterrows():
+        r_data = [
+            Paragraph(str(row.get('학번(숫자5자리)', row.get('학번', ''))), cell_style),
+            Paragraph(str(row.get('이름', '')), cell_style),
+            Paragraph(str(row.get('구분', '')), cell_style),
+            Paragraph(str(row.get('세부', '')), cell_style),
+            Paragraph(str(row.get('수정전', '')), cell_style),
+            Paragraph(str(row.get('수정 후', '')), cell_style),
+            Paragraph(str(row.get('수정해야하는 이유나 근거', '')), cell_style),
+            Paragraph(str(row.get('수정구분', '')), cell_style),
+        ]
+        table_data.append(r_data)
+
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1E3A8A")),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('LEFTPADDING', (0, 0), (-1, -1), 3),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+    ]))
+
+    elements.append(t)
+    doc.build(elements, canvasmaker=NumberedCanvas)
+    return buffer.getvalue()
 
 
 def create_formatted_excel_bytes(data_dict: dict) -> bytes:
@@ -1050,13 +1229,25 @@ def main():
                     st.markdown("### 📋 AI 오탈자 및 검증 결과 표 (학번순 정렬)")
                     st.dataframe(filtered_df, use_container_width=True, height=450)
 
-                    audit_excel_bytes = create_audit_report_excel_bytes(filtered_df)
-                    st.download_button(
-                        label="💾 AI 오탈자 & 지침 검증 리포트 엑셀 다운로드 (.xlsx)",
-                        data=audit_excel_bytes,
-                        file_name="생기부_AI_오탈자_및_지침검증_리포트.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                    col_dl1, col_dl2 = st.columns(2)
+                    with col_dl1:
+                        audit_excel_bytes = create_audit_report_excel_bytes(filtered_df)
+                        st.download_button(
+                            label="💾 AI 오탈자 검증 리포트 엑셀 다운로드 (.xlsx)",
+                            data=audit_excel_bytes,
+                            file_name="생기부_AI_오탈자_및_지침검증_리포트.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    with col_dl2:
+                        audit_pdf_bytes = create_audit_report_pdf_bytes(filtered_df)
+                        st.download_button(
+                            label="📄 AI 오탈자 검증 리포트 PDF 다운로드 (.pdf)",
+                            data=audit_pdf_bytes,
+                            file_name="생기부_AI_오탈자_및_지침검증_리포트.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
             else:
                 st.info("👆 [AI 정밀 분석 실행] 버튼을 눌러 AI 검증을 시작하세요.")
 
