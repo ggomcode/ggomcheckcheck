@@ -176,9 +176,10 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 {{
   "results": [
     {{
-      "student_id": "학번 (5자리 숫자로 작성, 예: 10101)",
+      "student_id": "학번 (5자리 숫자로 작성, 예: 20101)",
       "student_name": "학생 이름",
       "category": "구분 (창체 / 세특 / 행발 중 하나)",
+      "taken_grade": "이수학년 (예: 1학년, 2학년, 3학년)",
       "sub_category": "세부 (자율 / 동아리 / 진로 / 과목명 / 행동특성 중 하나)",
       "original_text": "오류가 발견된 수정 전 단어/문구",
       "suggested_text": "올바르게 교정된 수정 후 추천 문구",
@@ -687,9 +688,11 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
 # ==============================================================================
 def prepare_records_for_llm(data_store: dict) -> list:
     """
-    LLM API에 전달할 [학번, 이름, 구분, 세부, 이수시간, 기록 텍스트] 페이로드 리스트를 만듭니다.
+    LLM API에 전달할 [학번, 이름, 현재학년, 구분, 이수학년, 세부, 이수시간, 기록 텍스트] 페이로드를 생성합니다.
+    학생의 최고 학년을 자동 추산하여 학번(예: 20105)과 현재학년을 동적으로 재구성합니다.
     """
-    records_payload = []
+    student_max_grades = {}
+    raw_records = []
 
     for t_key in ["창체", "세특", "행특"]:
         if t_key not in data_store or data_store[t_key] is None:
@@ -698,16 +701,36 @@ def prepare_records_for_llm(data_store: dict) -> list:
         df = item['df']
         c_map = item['col_map']
         num_c, name_c, content_c = c_map['num_col'], c_map['name_col'], c_map['content_col']
+        grade_c = c_map.get('grade_col')
 
         for _, row in df.iterrows():
             num_raw = str(row.get(num_c, ''))
             name_val = str(row.get(name_c, '')).strip()
-
             num_str = re.sub(r'\D', '', num_raw)
-            if len(num_str) in [1, 2]:
-                student_id = f"101{int(num_str):02d}"
-            else:
-                student_id = num_str.zfill(5) if num_str else "00000"
+
+            # 이수 학년 추출
+            rec_grade = None
+            if grade_c and grade_c in row and pd.notna(row[grade_c]):
+                g_val = str(row[grade_c]).strip()
+                g_match = re.search(r'\d+', g_val)
+                if g_match:
+                    rec_grade = int(g_match.group())
+            
+            if not rec_grade:
+                row_text_str = str(row.to_dict())
+                g_match = re.search(r'([1-3])학년', row_text_str)
+                if g_match:
+                    rec_grade = int(g_match.group(1))
+
+            if not rec_grade and len(num_str) == 5:
+                rec_grade = int(num_str[0])
+
+            if not rec_grade:
+                rec_grade = 1
+
+            student_key = (name_val, num_str[-2:] if len(num_str) >= 2 else num_str)
+            if student_key not in student_max_grades or rec_grade > student_max_grades[student_key]:
+                student_max_grades[student_key] = rec_grade
 
             # 이수시간 추출 (시간 컬럼이 존재할 경우)
             hours_val = ""
@@ -726,13 +749,44 @@ def prepare_records_for_llm(data_store: dict) -> list:
             category_map = {"창체": "창체", "세특": "세특", "행특": "행발"}
             text_content = str(row.get('내용', row.get(content_c, '')))
             if text_content.strip():
-                records_payload.append({
-                    "학번": student_id,
-                    "이름": name_val,
-                    "구분": category_map.get(t_key, t_key),
-                    "세부": sub_cat,
-                    "기록텍스트": text_content
+                raw_records.append({
+                    "num_str": num_str,
+                    "name_val": name_val,
+                    "category": category_map.get(t_key, t_key),
+                    "taken_grade": f"{rec_grade}학년",
+                    "taken_grade_num": rec_grade,
+                    "sub_cat": sub_cat,
+                    "hours": hours_val,
+                    "text_content": text_content,
+                    "student_key": student_key
                 })
+
+    records_payload = []
+    for r in raw_records:
+        s_key = r["student_key"]
+        max_g = student_max_grades.get(s_key, r["taken_grade_num"])
+        num_str = r["num_str"]
+
+        if len(num_str) == 5:
+            ban_part = num_str[1:3]
+            num_part = num_str[3:]
+            current_student_id = f"{max_g}{ban_part}{num_part}"
+        elif len(num_str) in [1, 2]:
+            current_student_id = f"{max_g}01{int(num_str):02d}"
+        else:
+            current_student_id = num_str.zfill(5)
+
+        records_payload.append({
+            "학번": current_student_id,
+            "이름": r["name_val"],
+            "현재학년": f"{max_g}학년",
+            "구분": r["category"],
+            "이수학년": r["taken_grade"],
+            "세부": r["sub_cat"],
+            "이수시간": r["hours"],
+            "기록텍스트": r["text_content"]
+        })
+
     return records_payload
 
 
@@ -777,7 +831,7 @@ def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
         bottom=Side(style='thin', color='CBD5E1')
     )
 
-    headers = ["학년", "반", "번호", "학번", "이름", "구분", "세부", "이수시간", "원문 (수정 전)", "수정 후 (제안)", "수정 이유/근거", "수정구분"]
+    headers = ["학년", "반", "번호", "학번", "이름", "구분", "이수학년", "세부", "이수시간", "원문 (수정 전)", "수정 후 (제안)", "수정 이유/근거", "수정구분"]
     ws.append(headers)
 
     ws.row_dimensions[1].height = 28
@@ -801,6 +855,7 @@ def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
             s_id,
             r.get("이름", ""),
             r.get("구분", ""),
+            r.get("이수학년", ""),
             r.get("세부", ""),
             r.get("이수시간", r.get("시간", "")),
             r.get("수정전", ""),
@@ -819,12 +874,12 @@ def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
             cell.fill = row_fill
             cell.border = thin_border
             
-            if col_idx in [1, 2, 3, 4, 5, 6, 7, 8, 12]:
+            if col_idx in [1, 2, 3, 4, 5, 6, 7, 8, 9, 13]:
                 cell.alignment = Alignment(horizontal="center", vertical="center")
             else:
                 cell.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
 
-            if col_idx == 12:
+            if col_idx == 13:
                 if "필수" in mod_type:
                     cell.fill = fill_required
                     cell.font = font_red
@@ -833,11 +888,11 @@ def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
                     cell.font = font_amber
 
     col_widths = {
-        'A': 6, 'B': 6, 'C': 6, 'D': 9, 'E': 9, 'F': 8, 'G': 12, 'H': 9,
-        'I': 52, # 원문 (Wide)
-        'J': 32, # 수정 후 (Medium)
-        'K': 32, # 수정 이유 (Medium)
-        'L': 11  # 수정구분 (Narrow)
+        'A': 6, 'B': 6, 'C': 6, 'D': 9, 'E': 9, 'F': 8, 'G': 10, 'H': 12, 'I': 9,
+        'J': 48, # 원문 (Wide)
+        'K': 30, # 수정 후 (Medium)
+        'L': 30, # 수정 이유 (Medium)
+        'M': 11  # 수정구분 (Narrow)
     }
 
     for col_letter, width in col_widths.items():
@@ -932,15 +987,16 @@ def create_audit_report_pdf_bytes(audit_df: pd.DataFrame) -> bytes:
     elements.append(Paragraph("학교생활기록부 AI 오탈자 및 지침 검증 리포트", title_style))
     elements.append(Spacer(1, 6))
 
-    headers = ["학번", "이름", "구분", "세부", "수정전 (원문)", "수정 후 (제안)", "수정 사유/근거", "수정구분"]
+    headers = ["학번", "이름", "구분", "이수학년", "세부", "수정전 (원문)", "수정 후 (제안)", "수정 사유/근거", "수정구분"]
     table_data = [[Paragraph(h, header_cell_style) for h in headers]]
-    col_widths = [45, 45, 38, 55, 230, 155, 140, 48.85]
+    col_widths = [40, 42, 35, 48, 55, 218, 145, 130, 43.85]
 
     for idx, row in audit_df.iterrows():
         r_data = [
             Paragraph(str(row.get('학번(숫자5자리)', row.get('학번', ''))), cell_style),
             Paragraph(str(row.get('이름', '')), cell_style),
             Paragraph(str(row.get('구분', '')), cell_style),
+            Paragraph(str(row.get('이수학년', '')), cell_style),
             Paragraph(str(row.get('세부', '')), cell_style),
             Paragraph(str(row.get('수정전', '')), cell_style),
             Paragraph(str(row.get('수정 후', '')), cell_style),
@@ -1249,6 +1305,7 @@ def main():
                                     "학번": item.get("student_id", "00000"),
                                     "이름": item.get("student_name", ""),
                                     "구분": item.get("category", "세특"),
+                                    "이수학년": item.get("taken_grade", "1학년"),
                                     "세부": item.get("sub_category", ""),
                                     "수정전": item.get("original_text", ""),
                                     "수정 후": item.get("suggested_text", ""),
@@ -1262,7 +1319,7 @@ def main():
                                 st.session_state['llm_audit_results'] = res_df
                             else:
                                 st.session_state['llm_audit_results'] = pd.DataFrame(columns=[
-                                    "학번", "이름", "구분", "세부", "수정전", "수정 후", "수정해야하는 이유나 근거", "수정구분"
+                                    "학번", "이름", "구분", "이수학년", "세부", "수정전", "수정 후", "수정해야하는 이유나 근거", "수정구분"
                                 ])
 
                             st.success("✅ AI 정밀 검사 완료!")
