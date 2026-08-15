@@ -570,12 +570,20 @@ def smart_concatenate_text(base_text: str, append_text: str) -> str:
     last_char = base_clean[-1]
     first_char = append_clean[0]
 
-    if last_char in ['.', '!', '?', ':', ';']:
+    # 1. 문장 부호 및 괄호 뒤 연결 시 띄어쓰기 적용
+    if last_char in ['.', '!', '?', ':', ';', ',', ')', ']', '}', '"', "'"]:
         return f"{base_clean} {append_clean}"
-    
-    if (re.match(r'[가-힣a-zA-Z0-9]', last_char) and re.match(r'[가-힣a-zA-Z0-9]', first_char)):
+
+    # 2. 줄 바꿈으로 인해 단어가 잘린 경우 (어미, 조사, 어근 결합 시 띄어쓰기 없이 붙임)
+    # 예: '추진' + '함.', '실' + '천함.', '성' + '찰함.', '참' + '여함.'
+    if re.match(r'^(함|음|슴|했음|였음|하며|하여|하고|단|적|성|율|력|을|를|이|가|은|는|에|에서)(\.|\s|$)', append_clean):
         return base_clean + append_clean
-    
+
+    # 3. 완성된 단어와 단어 사이 연결 시 띄어쓰기 적용
+    # 예: '선정하고' + '노인화...' -> '선정하고 노인화...'
+    if re.match(r'[가-힣a-zA-Z0-9]', last_char) and re.match(r'[가-힣a-zA-Z0-9]', first_char):
+        return f"{base_clean} {append_clean}"
+
     return f"{base_clean} {append_clean}"
 
 
