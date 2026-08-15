@@ -790,6 +790,11 @@ def detect_actual_record_type(filename: str, df_raw: pd.DataFrame, selected_type
 # 5. 지능형 페이지 파싱 엔진 (Core Refinement Engine)
 # ==============================================================================
 def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
+    """
+    페이지 나눔(NEIS 인쇄 경계)으로 인해 쪼개진 행들을 파싱합니다.
+    가장 가까운 윗행 중 번호와 이름이 명시된 행(Active Record)을 추적하여,
+    분할된 텍스트를 해당 학생 레코드의 문장 끝에 정확하게 이어 붙입니다.
+    """
     num_col = col_map['num_col']
     name_col = col_map['name_col']
     content_col = col_map['content_col']
