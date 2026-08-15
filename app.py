@@ -2137,15 +2137,27 @@ def main():
 
                     with c_dl3:
                         st.markdown(f"#### 전체 통합 검증 ({len(filtered_df)}건)")
-                        st.download_button(
-                            "엑셀 (.xlsx)",
-                            data=create_audit_report_excel_bytes(filtered_df),
-                            file_name=f"{prefix}_전체리포트.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="dl_all_excel",
-                            use_container_width=True,
-                            disabled=filtered_df.empty
-                        )
+                        b_all1, b_all2 = st.columns(2)
+                        with b_all1:
+                            st.download_button(
+                                "엑셀 (.xlsx)",
+                                data=create_audit_report_excel_bytes(filtered_df),
+                                file_name=f"{prefix}_전체리포트.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="dl_all_excel",
+                                use_container_width=True,
+                                disabled=filtered_df.empty
+                            )
+                        with b_all2:
+                            st.download_button(
+                                "PDF (.pdf)",
+                                data=create_audit_report_pdf_bytes(filtered_df),
+                                file_name=f"{prefix}_전체리포트.pdf",
+                                mime="application/pdf",
+                                key="dl_all_pdf",
+                                use_container_width=True,
+                                disabled=filtered_df.empty
+                            )
 
                     with c_dl4:
                         available_exports = {t: st.session_state['data_store'][t]['df'] for t in available_types if t in st.session_state['data_store']}
