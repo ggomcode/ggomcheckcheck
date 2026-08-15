@@ -181,7 +181,7 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 
     # 1. Gemini API (Default / Recommended)
     if provider.lower() == "gemini":
-        model = model_name if model_name else "gemini-2.0-flash"
+        model = model_name if model_name else "gemini-3.1-flash-lite"
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
         payload = {
             "contents": [{"parts": [{"text": full_prompt}]}],
@@ -689,7 +689,7 @@ def main():
             help="AI 정밀 오탈자 검증을 위해 API 키를 입력해 주세요."
         )
 
-        model_name = "gemini-2.0-flash" if provider == "Gemini" else ("gpt-4o-mini" if provider == "OpenAI" else "claude-3-5-haiku-20241022")
+        model_name = "gemini-3.1-flash-lite" if provider == "Gemini" else ("gpt-4o-mini" if provider == "OpenAI" else "claude-3-5-haiku-20241022")
 
         st.markdown("---")
         st.header("📂 엑셀 파일 업로드")
