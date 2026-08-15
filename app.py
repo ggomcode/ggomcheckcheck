@@ -17,6 +17,7 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 
 # ==============================================================================
 # 페이지 기본 설정 & CSS 커스텀 스타일링 (Light Theme & Premium Card Aesthetics)
@@ -1387,9 +1388,9 @@ def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
 
     col_widths = {
         'A': 6, 'B': 6, 'C': 6, 'D': 9, 'E': 9, 'F': 8, 'G': 10, 'H': 12, 'I': 9,
-        'J': 48,
-        'K': 30,
-        'L': 30,
+        'J': 36,
+        'K': 36,
+        'L': 36,
         'M': 11
     }
 
@@ -1404,13 +1405,35 @@ def create_audit_report_excel_bytes(audit_df: pd.DataFrame) -> bytes:
 # 9. PDF 인쇄용 내보내기 함수 (ReportLab - A4 가로인쇄, 15mm 여백, 페이지 꼬리말)
 # ==============================================================================
 def register_korean_font():
-    font_path = "C:\\Windows\\Fonts\\malgun.ttf"
-    if os.path.exists(font_path):
-        try:
-            pdfmetrics.registerFont(TTFont("Malgun", font_path))
-            return "Malgun"
-        except Exception:
-            pass
+    font_paths = [
+        ("Malgun", "C:\\Windows\\Fonts\\malgun.ttf"),
+        ("Gulim", "C:\\Windows\\Fonts\\gulim.ttc"),
+        ("Batang", "C:\\Windows\\Fonts\\batang.ttc"),
+        ("NanumGothic", "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"),
+    ]
+    for font_name, font_path in font_paths:
+        if os.path.exists(font_path):
+            try:
+                if font_name not in pdfmetrics.getRegisteredFontNames():
+                    pdfmetrics.registerFont(TTFont(font_name, font_path))
+                return font_name
+            except Exception:
+                pass
+
+    try:
+        if 'HYGothic-Medium' not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(UnicodeCIDFont('HYGothic-Medium'))
+        return 'HYGothic-Medium'
+    except Exception:
+        pass
+
+    try:
+        if 'HYSMyeongJo-Medium' not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(UnicodeCIDFont('HYSMyeongJo-Medium'))
+        return 'HYSMyeongJo-Medium'
+    except Exception:
+        pass
+
     return "Helvetica"
 
 
@@ -1507,7 +1530,7 @@ def create_audit_report_pdf_bytes(audit_df: pd.DataFrame) -> bytes:
 
     headers = ["학번", "이름", "구분", "이수학년", "세부", "수정전 (원문)", "수정 후 (제안)", "수정 사유/근거", "수정구분"]
     table_data = [[Paragraph(h, header_cell_style) for h in headers]]
-    col_widths = [40, 42, 35, 48, 55, 218, 145, 130, 43.85]
+    col_widths = [40, 42, 35, 45, 50, 166.6, 166.6, 166.65, 45]
 
     for idx, row in audit_df.iterrows():
         r_data = [
@@ -1762,6 +1785,8 @@ def main():
         st.session_state['llm_audit_results'] = None
     if 'has_audited' not in st.session_state:
         st.session_state['has_audited'] = False
+    if 'uploader_key_version' not in st.session_state:
+        st.session_state['uploader_key_version'] = 0
 
     if 'api_key_store' not in st.session_state:
         st.session_state['api_key_store'] = {
@@ -1836,11 +1861,12 @@ def main():
                     """)
 
         with st.expander("엑셀 파일 업로드", expanded=True):
+            uploader_key = f"auto_file_uploader_{st.session_state.get('uploader_key_version', 0)}"
             uploaded_files = st.file_uploader(
                 "생기부 엑셀 파일 (.xlsx, .xls)",
                 type=["xlsx", "xls"],
                 accept_multiple_files=True,
-                key="auto_file_uploader"
+                key=uploader_key
             )
 
             if uploaded_files:
@@ -1923,6 +1949,7 @@ def main():
 
         st.sidebar.markdown("---")
         if st.sidebar.button("분석 결과 초기화", use_container_width=True, help="업로드된 모든 생기부 파일과 AI 검증 결과를 초기화하고 새로 시작합니다."):
+            st.session_state['uploader_key_version'] = st.session_state.get('uploader_key_version', 0) + 1
             st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
             st.session_state['llm_audit_results'] = None
             st.session_state['has_audited'] = False
@@ -1958,6 +1985,7 @@ def main():
             with col_b2:
                 btn_reset_main = st.button("전체 데이터 초기화", use_container_width=True, help="업로드된 데이터와 AI 분석 결과를 모두 지우고 초기 상태로 되돌립니다.")
                 if btn_reset_main:
+                    st.session_state['uploader_key_version'] = st.session_state.get('uploader_key_version', 0) + 1
                     st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
                     st.session_state['llm_audit_results'] = None
                     st.session_state['has_audited'] = False
