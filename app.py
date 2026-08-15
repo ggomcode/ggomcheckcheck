@@ -1154,6 +1154,12 @@ def main():
                 with st.expander("오류 상세 내용"):
                     st.code(traceback.format_exc())
 
+        st.sidebar.markdown("---")
+        if st.sidebar.button("🔄 전체 데이터 & 분석 결과 초기화", use_container_width=True, help="업로드된 모든 생기부 파일과 AI 검증 결과를 초기화하고 새로 시작합니다."):
+            st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
+            st.session_state['llm_audit_results'] = None
+            st.rerun()
+
     # --------------------------------------------------------------------------
     # 메인 콘텐츠 영역 (Tabs)
     # --------------------------------------------------------------------------
@@ -1177,11 +1183,17 @@ def main():
         if not available_types:
             st.warning("👈 먼저 사이드바에서 생기부 엑셀 파일을 업로드해 주세요.")
         else:
-            col_b1, col_b2 = st.columns([3, 1])
+            col_b1, col_b2, col_b3 = st.columns([2, 1, 1])
             with col_b1:
                 st.info("💡 사이드바에 API Key를 입력한 후 아래 [AI 정밀 분석 실행] 버튼을 클릭하세요.")
             with col_b2:
                 btn_run_llm = st.button("🚀 AI 정밀 분석 실행", type="primary", use_container_width=True)
+            with col_b3:
+                btn_reset_main = st.button("🔄 전체 초기화", use_container_width=True, help="업로드된 데이터와 AI 분석 결과를 모두 지우고 초기 상태로 되돌립니다.")
+                if btn_reset_main:
+                    st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
+                    st.session_state['llm_audit_results'] = None
+                    st.rerun()
 
             if btn_run_llm:
                 if not api_key:
