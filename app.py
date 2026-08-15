@@ -404,6 +404,8 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
    - [0시간 점검] 영역별 이수시간이 '0시간'으로 기록되어 있거나 텍스트 내 '(0시간)'이 작성된 경우에는 출결 및 실제 이수시간 점검을 위해 '수정 권장'으로 감지하고 "창체 영역별 이수 시간이 0시간으로 기재되어 있으니 출결 및 실제 이수 시간을 확인하십시오"라는 안내 사유를 제시하십시오.
 8. 창체 세부 영역 단일화 및 명확화:
    - [필수 규칙] 창의적 체험활동의 'sub_category(세부)' 항목은 기록 내용을 분석하여 반드시 '자율활동', '동아리활동', '진로활동' 중 명확하게 1개 영역만 지정해야 합니다. 절대로 '자율/동아리/진로'처럼 여러 개를 슬래시로 묶어서 표기하지 마십시오.
+9. 기업/브랜드 알파벳 1글자 블라인드 표기 허용 규칙:
+   - [중요 규칙] 'E사', 'A사', 'B사', 'K사'처럼 기업명이나 상호명을 블라인드/익명화하기 위한 '알파벳 1글자+사(社)' 형태의 표기(예: 'E사', 'A사')는 정당한 익명화 기재 방식입니다. 1글자짜리 정식회사명이나 브랜드는 존재하지 않으므로 절대로 '상호명/기업 이니셜 사용' 오류로 감지하거나 지적하지 마십시오.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【출력 형식 (JSON Schema)】
@@ -518,7 +520,14 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
             except Exception:
                 pass
 
-    return all_results
+    filtered_results = []
+    for res_item in all_results:
+        orig = str(res_item.get('original_text', '')).strip()
+        if re.match(r'^[A-Za-z]사$', orig):
+            continue
+        filtered_results.append(res_item)
+
+    return filtered_results
 
 
 # ==============================================================================
