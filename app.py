@@ -286,14 +286,60 @@ def smart_concatenate_text(base_text: str, append_text: str) -> str:
 
 
 # ==============================================================================
-# 4. 동적 컬럼 자동 매핑 엔진
+# 4. 동적 컬럼 자동 매핑 및 헤더 행 탐지 엔진
 # ==============================================================================
-def detect_columns(df: pd.DataFrame) -> dict:
-    columns = list(df.columns)
+def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool:
+    """
+    엑셀의 매 페이지마다 반복되는 제목, 헤더('번호', '성명'), 푸터('포곡고등학교', '사용자명', '페이지 번호')를 걸러냅니다.
+    """
+    vals = [str(v).strip() for v in row_dict.values() if pd.notna(v)]
+    combined = "".join(vals).replace(" ", "")
+
+    num_val_str = str(row_dict.get(num_col, '')).replace(" ", "") if num_col else ""
+    name_val_str = str(row_dict.get(name_col, '')).replace(" ", "") if name_col else ""
+
+    # 1. 헤더 행 탐지 ('번호'와 '성명'이 컬럼명/헤더로 들어있는 경우)
+    if '번호' in num_val_str or '성명' in name_val_str or '번 호' in num_val_str or '성 명' in name_val_str:
+        return True
+    if '영역' in combined and ('시간' in combined or '특기사항' in combined):
+        return True
+    if '창의적체험활동상황' in combined:
+        return True
+
+    # 2. 푸터/페이지 정보 탐지
+    if '포곡고등학교' in combined or '사용자명' in combined or '페이지' in combined:
+        return True
+    if re.search(r'\d+/\d+\.?\d*', combined) or re.search(r'\d+학년\d+반', combined):
+        return True
+
+    return False
+
+
+def detect_columns(df: pd.DataFrame) -> tuple:
+    """
+    0~15행 사이에서 '번호'와 '성명'이 포함된 실무 헤더 행을 자동 탐지하여 컬럼을 설정하고 
+    '번호', '성명', '기록 내용', '영역' 컬럼을 동적으로 매핑합니다.
+    """
+    df_processed = df.copy()
+
+    # 1. 헤더 행 찾기 (상위 15행 탐색)
+    header_idx = None
+    for idx in range(min(15, len(df_processed))):
+        row_str = "".join([str(v).replace(" ", "") for v in df_processed.iloc[idx].values if pd.notna(v)])
+        if '번호' in row_str and ('성명' in row_str or '이름' in row_str):
+            header_idx = idx
+            break
+
+    if header_idx is not None:
+        df_processed.columns = [str(v).strip() for v in df_processed.iloc[header_idx].values]
+        df_processed = df_processed.iloc[header_idx + 1:].reset_index(drop=True)
+
+    columns = list(df_processed.columns)
     mapped = {
         'num_col': None,
         'name_col': None,
         'content_col': None,
+        'area_col': None,
         'extra_cols': []
     }
 
@@ -303,6 +349,7 @@ def detect_columns(df: pd.DataFrame) -> dict:
         '세부능력 및 특기사항', '세부능력및특기사항', '행동특성 및 종합의견', '행동특성및종합의견',
         '창의적 체험활동 영역별 특기사항', '창체', '특기사항', '기록 내용', '기록내용', '내용', '종합의견', '세특'
     ]
+    area_keywords = ['영역', '활동영역', '구분', '과목', '과목명']
 
     for col in columns:
         col_clean = str(col).strip().replace(" ", "").lower()
@@ -321,13 +368,18 @@ def detect_columns(df: pd.DataFrame) -> dict:
                 if kw in col_clean:
                     mapped['content_col'] = col
                     break
+        if not mapped['area_col']:
+            for kw in area_keywords:
+                if kw in col_clean:
+                    mapped['area_col'] = col
+                    break
 
     if not mapped['num_col'] and len(columns) > 0:
         mapped['num_col'] = columns[0]
     if not mapped['name_col'] and len(columns) > 1:
         mapped['name_col'] = columns[1]
     if not mapped['content_col'] and len(columns) > 2:
-        sample = df.head(10)
+        sample = df_processed.head(10)
         max_len_col = columns[-1]
         max_len = 0
         for c in columns:
@@ -339,16 +391,22 @@ def detect_columns(df: pd.DataFrame) -> dict:
         mapped['content_col'] = max_len_col
 
     mapped['extra_cols'] = [c for c in columns if c not in [mapped['num_col'], mapped['name_col'], mapped['content_col']]]
-    return mapped
+    return df_processed, mapped
 
 
 # ==============================================================================
 # 5. 지능형 페이지 파싱 엔진 (Core Refinement Engine)
 # ==============================================================================
 def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
+    """
+    페이지 나눔으로 인해 쪼개졌거나(빈 행) 
+    페이지 넘김 후 번호/성명이 중복 표기된 아래 행 데이터를 
+    이전 서술문 끝에 완벽하게 정제하여 매끄럽게 연결하는 핵심 엔진입니다.
+    """
     num_col = col_map['num_col']
     name_col = col_map['name_col']
     content_col = col_map['content_col']
+    area_col = col_map.get('area_col')
 
     refined_rows = []
     merge_logs = []
@@ -356,13 +414,26 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 
     for idx, row in df.iterrows():
         try:
+            row_dict = row.to_dict()
+
+            # 1. 매 페이지 반복되는 헤더/푸터 메타데이터 행 제외
+            if is_header_or_footer_row(row_dict, num_col, name_col):
+                continue
+
             num_val = row[num_col] if num_col in row else None
             name_val = row[name_col] if name_col in row else None
             content_val = clean_text_content(row[content_col]) if content_col in row else ""
+            area_val = str(row[area_col]).strip() if area_col and area_col in row and pd.notna(row[area_col]) else ""
 
-            is_num_empty = pd.isna(num_val) or str(num_val).strip() == "" or str(num_val).strip().lower() == "nan"
-            is_name_empty = pd.isna(name_val) or str(name_val).strip() == "" or str(name_val).strip().lower() == "nan"
+            is_num_empty = pd.isna(num_val) or str(num_val).strip() in ['', 'nan', 'NaN', 'None']
+            is_name_empty = pd.isna(name_val) or str(name_val).strip() in ['', 'nan', 'NaN', 'None']
 
+            num_str = "" if is_num_empty else str(num_val).strip()
+            name_str = "" if is_name_empty else str(name_val).strip()
+
+            # ------------------------------------------------------------------
+            # Case A: 번호/성명이 비어 있는 페이지 절단 행
+            # ------------------------------------------------------------------
             if is_num_empty and is_name_empty:
                 if current_student_record is not None and content_val:
                     prev_content = current_student_record[content_col]
@@ -379,8 +450,42 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                     })
                 continue
 
+            # ------------------------------------------------------------------
+            # Case B: 페이지 넘김 후 이전 학생의 번호/이름이 중복 표기된 연속 절단 행
+            # ------------------------------------------------------------------
+            if (current_student_record is not None and 
+                current_student_record[num_col] == num_str and 
+                current_student_record[name_col] == name_str and 
+                (not area_val or current_student_record.get(area_col, '') == area_val or area_val in current_student_record.get(area_col, ''))):
+
+                # 새로운 동아리/과목 활동 시작 패턴인지 확인
+                is_new_activity_start = (
+                    re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', content_val) or 
+                    re.match(r'^\([12]학기\)[가-힣·/]+:', content_val)
+                )
+
+                if not is_new_activity_start:
+                    prev_content = current_student_record[content_col]
+                    merged_content = smart_concatenate_text(prev_content, content_val)
+                    current_student_record[content_col] = merged_content
+                    current_student_record['_merged_count'] += 1
+                    current_student_record['_merged_rows'].append(idx + 2)
+
+                    merge_logs.append({
+                        'excel_row': idx + 2,
+                        'target_student': f"{current_student_record[num_col]}번 {current_student_record[name_col]}",
+                        'appended_text': content_val,
+                        'result_content_snippet': merged_content[-80:]
+                    })
+                    continue
+
+            # ------------------------------------------------------------------
+            # Case C: 신규 레코드 시작
+            # ------------------------------------------------------------------
             new_record = row.to_dict()
             new_record[content_col] = content_val
+            if area_col:
+                new_record[area_col] = area_val
             new_record['_original_excel_row'] = idx + 2
             new_record['_merged_count'] = 0
             new_record['_merged_rows'] = []
@@ -756,8 +861,8 @@ def main():
                 raw_df = pd.read_excel(uploaded_file)
                 st.session_state['data_store']['raw_data'][type_key] = raw_df
 
-                col_map = detect_columns(raw_df)
-                refined_df, logs = refine_student_records(raw_df, col_map)
+                df_processed, col_map = detect_columns(raw_df)
+                refined_df, logs = refine_student_records(df_processed, col_map)
                 
                 if type_key == "세특":
                     final_df = split_subject_details(refined_df, col_map)
@@ -772,7 +877,14 @@ def main():
                 }
                 st.session_state['data_store']['merge_logs'][type_key] = logs
 
-                st.sidebar.success(f"✅ {type_key} 데이터 준비 완료! ({len(refined_df)}명 학생)")
+                num_c, name_c = col_map['num_col'], col_map['name_col']
+                unique_students_cnt = len(final_df[[num_c, name_c]].drop_duplicates())
+                if type_key == "창체":
+                    st.sidebar.success(f"✅ {type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생, {len(final_df)}개 영역 기록)")
+                elif type_key == "세특":
+                    st.sidebar.success(f"✅ {type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생, {len(final_df)}개 과목 기록)")
+                else:
+                    st.sidebar.success(f"✅ {type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생)")
 
             except Exception as e:
                 st.sidebar.error(f"❌ 파일 처리 오류: {str(e)}")
