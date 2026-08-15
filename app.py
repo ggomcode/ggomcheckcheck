@@ -328,12 +328,44 @@ def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool
     return False
 
 
+def deduplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    엑셀 파일 내 컬럼명이 중복된 경우(예: '특기사항', '특기사항') 
+    Pandas가 DataFrame을 반환하여 '.str' 속성 에러가 발생하는 것을 방지하는 중복 컬럼 고유화 함수입니다.
+    """
+    cols = list(df.columns)
+    seen = {}
+    new_cols = []
+    for c in cols:
+        c_str = str(c).strip()
+        if c_str in seen:
+            seen[c_str] += 1
+            new_cols.append(f"{c_str}_{seen[c_str]}")
+        else:
+            seen[c_str] = 0
+            new_cols.append(c_str)
+    df.columns = new_cols
+    return df
+
+
+def get_safe_series(df: pd.DataFrame, col_name: str) -> pd.Series:
+    """
+    DataFrame에서 단일 컬럼을 안전하게 pd.Series 형태로 가져옵니다.
+    """
+    if col_name not in df.columns:
+        return pd.Series([""] * len(df), index=df.index)
+    val = df[col_name]
+    if isinstance(val, pd.DataFrame):
+        return val.iloc[:, 0]
+    return val
+
+
 def detect_columns(df: pd.DataFrame) -> tuple:
     """
     0~15행 사이에서 '번호'와 '성명'이 포함된 실무 헤더 행을 자동 탐지하여 컬럼을 설정하고 
     '번호', '성명', '기록 내용', '영역' 컬럼을 동적으로 매핑합니다.
     """
-    df_processed = df.copy()
+    df_processed = deduplicate_columns(df.copy())
 
     # 1. 헤더 행 찾기 (상위 15행 탐색)
     header_idx = None
@@ -346,6 +378,8 @@ def detect_columns(df: pd.DataFrame) -> tuple:
     if header_idx is not None:
         df_processed.columns = [str(v).strip() for v in df_processed.iloc[header_idx].values]
         df_processed = df_processed.iloc[header_idx + 1:].reset_index(drop=True)
+
+    df_processed = deduplicate_columns(df_processed)
 
     columns = list(df_processed.columns)
     mapped = {
@@ -1096,7 +1130,7 @@ def main():
                 else:
                     final_df = refined_df.copy()
                     content_c = col_map['content_col']
-                    final_df['글자수'] = final_df[content_c].astype(str).apply(len)
+                    final_df['글자수'] = get_safe_series(final_df, content_c).astype(str).apply(len)
 
                 st.session_state['data_store'][type_key] = {
                     'df': final_df,
@@ -1105,7 +1139,9 @@ def main():
                 st.session_state['data_store']['merge_logs'][type_key] = logs
 
                 num_c, name_c = col_map['num_col'], col_map['name_col']
-                unique_students_cnt = len(final_df[[num_c, name_c]].drop_duplicates())
+                num_series = get_safe_series(final_df, num_c)
+                name_series = get_safe_series(final_df, name_c)
+                unique_students_cnt = len(pd.DataFrame({'num': num_series, 'name': name_series}).drop_duplicates())
                 if type_key == "창체":
                     st.sidebar.success(f"✅ {type_key} 데이터 준비 완료! (총 {unique_students_cnt}명 학생, {len(final_df)}개 영역 기록)")
                 elif type_key == "세특":
@@ -1293,7 +1329,7 @@ def main():
                         if '창체' in st.session_state['data_store'] and st.session_state['data_store']['창체'] is not None:
                             c_item = st.session_state['data_store']['창체']
                             c_df, c_map = c_item['df'], c_item['col_map']
-                            student_records = c_df[(c_df[c_map['num_col']].astype(str).str.strip() == target_num) & (c_df[c_map['name_col']].astype(str).str.strip() == target_name)]
+                            student_records = c_df[(get_safe_series(c_df, c_map['num_col']).astype(str).str.strip() == target_num) & (get_safe_series(c_df, c_map['name_col']).astype(str).str.strip() == target_name)]
                             if not student_records.empty:
                                 for _, rec in student_records.iterrows():
                                     content_text = rec[c_map['content_col']]
@@ -1311,7 +1347,7 @@ def main():
                         if '세특' in st.session_state['data_store'] and st.session_state['data_store']['세특'] is not None:
                             s_item = st.session_state['data_store']['세특']
                             s_df, s_map = s_item['df'], s_item['col_map']
-                            student_records = s_df[(s_df[s_map['num_col']].astype(str).str.strip() == target_num) & (s_df[s_map['name_col']].astype(str).str.strip() == target_name)]
+                            student_records = s_df[(get_safe_series(s_df, s_map['num_col']).astype(str).str.strip() == target_num) & (get_safe_series(s_df, s_map['name_col']).astype(str).str.strip() == target_name)]
                             if not student_records.empty:
                                 for _, rec in student_records.iterrows():
                                     subj = rec.get('과목명', '기타')
@@ -1331,7 +1367,7 @@ def main():
                         if '행특' in st.session_state['data_store'] and st.session_state['data_store']['행특'] is not None:
                             h_item = st.session_state['data_store']['행특']
                             h_df, h_map = h_item['df'], h_item['col_map']
-                            student_records = h_df[(h_df[h_map['num_col']].astype(str).str.strip() == target_num) & (h_df[h_map['name_col']].astype(str).str.strip() == target_name)]
+                            student_records = h_df[(get_safe_series(h_df, h_map['num_col']).astype(str).str.strip() == target_num) & (get_safe_series(h_df, h_map['name_col']).astype(str).str.strip() == target_name)]
                             if not student_records.empty:
                                 for _, rec in student_records.iterrows():
                                     content_text = rec[h_map['content_col']]
