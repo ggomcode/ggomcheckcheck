@@ -2,7 +2,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .DS_Store
-/data/창체_1반.xlsx
-/data/세특_1반.xlsx
-/data/행특_1반.xlsx
+/data/창체_2반.xlsx
+/data/세특_2반.xlsx
+/data/행특_2반.xlsx
 scratch/

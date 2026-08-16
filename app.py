@@ -23,9 +23,20 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 # ==============================================================================
 # 페이지 기본 설정 & CSS 커스텀 스타일링 (Light Theme & Premium Card Aesthetics)
 # ==============================================================================
+def get_favicon_b64(icon_path: str = "favicon.png") -> str:
+    import base64
+    if os.path.exists(icon_path):
+        try:
+            with open(icon_path, "rb") as f:
+                return base64.b64encode(f.read()).decode("utf-8")
+        except Exception:
+            pass
+    return ""
+
+
 st.set_page_config(
     page_title="꼼체크체크 - 생기부 AI 정밀 검증 시스템",
-    page_icon=None,
+    page_icon="favicon.png" if os.path.exists("favicon.png") else "📋",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -238,6 +249,11 @@ st.markdown("""
         color: #5B21B6 !important;
         font-weight: 700 !important;
         font-size: 0.95rem !important;
+    /* API Key Label - Bold Dark Red */
+    section[data-testid="stSidebar"] div[data-testid="stTextInput"] label,
+    section[data-testid="stSidebar"] div[data-testid="stTextInput"] label p {
+        color: #B91C1C !important;
+        font-weight: 700 !important;
     }
 
     /* Form Controls - Crisp Visible Borders for Selectbox & Inputs */
@@ -649,18 +665,22 @@ def get_changche_area_from_cell(area_cell, text_cell) -> str:
     return '자율활동'
 
 
-def check_jinro_hope_field(row_dict: dict) -> tuple:
+def check_jinro_hope_field(row_dict: dict, row_series: pd.Series = None) -> tuple:
     """
-    진로활동 영역에서 '희망분야' (Column F) 항목 및 학생이 기입한 실제 희망분야 내용 (Column G, 예: '작곡가', 'PD' 등)을 검사합니다.
+    진로활동 영역에서 I열 특기사항이 '희망사항' 항목일 때 M열(학생 희망진로) 내용 검사.
     Returns: (is_hope_row: bool, hope_value: str)
     """
     row_values = [safe_str(v) for v in row_dict.values() if safe_notna(v)]
     for idx, val in enumerate(row_values):
-        if len(val) <= 20 and ('희망분야' in val or '희망 분야' in val):
+        if len(val) <= 20 and ('희망사항' in val or '희망분야' in val or '희망 분야' in val):
             hope_val = ""
-            if idx + 1 < len(row_values):
+            if row_series is not None and len(row_series) > 12:
+                candidate_m = safe_str(row_series.iloc[12])
+                if candidate_m and candidate_m.lower() not in ['nan', 'none', '희망분야', '희망 분야', '희망사항', '특기사항']:
+                    hope_val = candidate_m
+            if not hope_val and idx + 1 < len(row_values):
                 candidate = row_values[idx + 1].strip()
-                if candidate and candidate.lower() not in ['nan', 'none', '희망분야', '희망 분야', '특기사항']:
+                if candidate and candidate.lower() not in ['nan', 'none', '희망분야', '희망 분야', '희망사항', '특기사항']:
                     hope_val = candidate
             return True, hope_val
     return False, ""
@@ -711,18 +731,19 @@ def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool
     if '번호' in num_val_str or '성명' in name_val_str or '번 호' in num_val_str or '성 명' in name_val_str:
         return True
 
-    if len(combined) < 40 and '영역' in combined and ('시간' in combined or '특기사항' in combined):
-        return True
-    if len(combined) < 40 and '창의적체험활동상황' in combined:
-        return True
+    if len(combined) < 40 and ('영역' in combined or '창의적체험활동' in combined or '세부능력' in combined or '행동특성' in combined):
+        if '시간' in combined or '특기사항' in combined or '상황' in combined or '의견' in combined:
+            return True
 
-    # NEIS 엑셀 페이지 꼬리말 구조 정밀 검사: '/' 셀이 있고 페이지 숫자 및 학교명이 존재하는 행 (예: '49 / 50.0 포곡고등학교')
+    # NEIS 엑셀 페이지 꼬리말 구조 정밀 검사: '/' 셀이 있고 페이지 숫자 및 학교명이 존재하는 행
     if '/' in vals and (any('고등학교' in v or '학교' in v for v in vals) or any(re.match(r'^\d+\.?\d*$', v) for v in vals)):
         return True
 
-    if len(combined) < 50 and ('포곡고등학교' in combined or '사용자명' in combined or '페이지' in combined or '고등학교' in combined):
-        return True
-    if len(combined) < 40 and (re.search(r'^\s*\d+/\d+\.?\d*\s*$', combined) or re.search(r'\d+학년\d+반', combined)):
+    if len(combined) < 50 and ('학교' in combined or '사용자명' in combined or '페이지' in combined):
+        if any(re.search(r'^\d+$', v.strip()) for v in vals) or '/' in combined:
+            return True
+
+    if len(combined) < 40 and re.search(r'^\s*\d+/\d+\.?\d*\s*$', combined):
         return True
 
     return False
@@ -778,29 +799,36 @@ def detect_columns(df: pd.DataFrame) -> tuple:
     df_processed = deduplicate_columns(df.copy())
 
     header_idx = None
-    for idx in range(min(15, len(df_processed))):
-        row_str = "".join([safe_str(v).replace(" ", "") for v in df_processed.iloc[idx].values if safe_notna(v)])
-        if '번호' in row_str and ('성명' in row_str or '이름' in row_str):
+    for idx in range(min(20, len(df_processed))):
+        row_vals = [safe_str(v).replace(" ", "") for v in df_processed.iloc[idx].values if safe_notna(v)]
+        row_str = "".join(row_vals)
+        if ('번호' in row_str or '번' in row_str) and ('성명' in row_str or '이름' in row_str):
             header_idx = idx
             break
 
     if header_idx is not None:
         h1 = [safe_str(v) for v in df_processed.iloc[header_idx].values]
         skip_rows = 1
+        
         if header_idx + 1 < len(df_processed):
-            h2_str = "".join([safe_str(v).replace(" ", "") for v in df_processed.iloc[header_idx + 1].values if safe_notna(v)])
-            if any(k in h2_str for k in ['영역', '특기사항', '시간', '구분', '내용']):
-                h2 = [safe_str(v) for v in df_processed.iloc[header_idx + 1].values]
-                combined = []
-                for c1, c2 in zip(h1, h2):
-                    if c2 and c2.lower() != 'nan' and c2.lower() != 'none':
-                        combined.append(c2)
-                    elif c1 and c1.lower() != 'nan' and c1.lower() != 'none':
-                        combined.append(c1)
-                    else:
-                        combined.append('nan')
-                h1 = combined
-                skip_rows = 2
+            next_row = df_processed.iloc[header_idx + 1]
+            col_b_val = safe_str(next_row.iloc[1]).strip() if len(next_row) > 1 else ""
+            is_student_row = bool(re.match(r'^\d+$', col_b_val))
+            
+            if not is_student_row:
+                h2_str = "".join([safe_str(v).replace(" ", "") for v in next_row.values if safe_notna(v)])
+                if any(k in h2_str for k in ['영역', '특기사항', '시간', '구분', '내용']):
+                    h2 = [safe_str(v) for v in next_row.values]
+                    combined = []
+                    for c1, c2 in zip(h1, h2):
+                        if c2 and c2.lower() != 'nan' and c2.lower() != 'none':
+                            combined.append(c2)
+                        elif c1 and c1.lower() != 'nan' and c1.lower() != 'none':
+                            combined.append(c1)
+                        else:
+                            combined.append('nan')
+                    h1 = combined
+                    skip_rows = 2
 
         df_processed.columns = h1
         df_processed = df_processed.iloc[header_idx + skip_rows:].reset_index(drop=True)
@@ -888,10 +916,36 @@ def detect_columns(df: pd.DataFrame) -> tuple:
     return df_processed, mapped
 
 
+def extract_current_grade_class(df_raw: pd.DataFrame) -> tuple:
+    """
+    엑셀 상단 셀(B8 기본, B6~B8 범위 및 상단 셀)에서 현재 학년/반 정보를 추출합니다.
+    Returns: (grade: int, ban: int)
+    """
+    if df_raw is None or df_raw.empty:
+        return 3, 1
+
+    check_coords = [(7, 1), (5, 1), (6, 1), (4, 1), (3, 1), (8, 1)]
+    for r, c in check_coords:
+        if r < len(df_raw) and c < df_raw.shape[1]:
+            val = safe_str(df_raw.iloc[r, c])
+            m = re.search(r'(\d+)\s*학년\s*(\d+)\s*반', val)
+            if m:
+                return int(m.group(1)), int(m.group(2))
+
+    for r in range(min(10, len(df_raw))):
+        for c in range(min(6, df_raw.shape[1])):
+            val = safe_str(df_raw.iloc[r, c])
+            m = re.search(r'(\d+)\s*학년\s*(\d+)\s*반', val)
+            if m:
+                return int(m.group(1)), int(m.group(2))
+
+    return 3, 1
+
+
 def detect_actual_record_type(filename: str, df_raw: pd.DataFrame) -> str:
     """
-    NEIS 엑셀 표준 서식 셀 위치(세특: G3, 행특: D2, 창체: C2) 및 내부 헤더, 컬럼 구조, 데이터 값을 분석하여
-    데이터 유형("창체", "세특", "행특")을 100% 정밀 판별합니다. (파일명은 완전히 무시)
+    NEIS XLS 표준 셀 위치 (창체: D4, 세특: H6, 행특: E4) 및 내부 헤더/셀 값을 분석하여
+    데이터 유형("창체", "세특", "행특")을 100% 정밀 판별합니다.
     """
     def get_val(r, c):
         if r < len(df_raw) and c < df_raw.shape[1]:
@@ -900,14 +954,25 @@ def detect_actual_record_type(filename: str, df_raw: pd.DataFrame) -> str:
                 return safe_str(v).replace(" ", "")
         return ""
 
-    # NEIS 표준 셀 위치 검사:
-    # 세특: G3 (row 2, col 6) -> '학교생활기록부 세부능력 및 특기사항'
-    # 행특: D2 (row 1, col 3) -> '학교생활기록부 행동특성 및 종합의견'
-    # 창체: C2 (row 1, col 2) -> '학교생활기록부 창의적체험활동상황'
+    # D4 (r=3, c=3) -> 창체
+    d4_val = get_val(3, 3)
+    if '창의적체험활동상황' in d4_val or '창의적체험활동' in d4_val:
+        return "창체"
+
+    # H6 (r=5, c=7) -> 세특
+    h6_val = get_val(5, 7)
+    if '세부능력' in h6_val or '세부능력및특기사항' in h6_val:
+        return "세특"
+
+    # E4 (r=3, c=4) -> 행특
+    e4_val = get_val(3, 4)
+    if '행동특성' in e4_val or '행동특성및종합의견' in e4_val:
+        return "행특"
+
+    # NEIS 기존 표준 위치 보완
     cell_g3 = get_val(2, 6)
     cell_d2 = get_val(1, 3)
     cell_c2 = get_val(1, 2)
-
     if '세부능력' in cell_g3 or '학교생활기록부세부능력' in cell_g3:
         return "세특"
     if '행동특성' in cell_d2 or '학교생활기록부행동특성' in cell_d2:
@@ -915,9 +980,9 @@ def detect_actual_record_type(filename: str, df_raw: pd.DataFrame) -> str:
     if '창의적체험활동' in cell_c2 or '학교생활기록부창의적체험활동' in cell_c2:
         return "창체"
 
-    # 상단 5개 행 전수 조사 (셀 위치 오차나 병합 셀 보완)
+    # 상단 10개 행 전수 조사 (셀 위치 오차나 병합 셀 보완)
     top_rows_text = ""
-    for r in range(min(5, len(df_raw))):
+    for r in range(min(10, len(df_raw))):
         row_str = "".join([safe_str(v).replace(" ", "") for v in df_raw.iloc[r].values if safe_notna(v)])
         top_rows_text += row_str + " "
 
@@ -928,7 +993,6 @@ def detect_actual_record_type(filename: str, df_raw: pd.DataFrame) -> str:
     if '학교생활기록부세부능력' in top_rows_text or '세부능력및특기사항' in top_rows_text:
         return "세특"
 
-    # 컬럼 파싱 및 영역 데이터 탐색 (추가 보완)
     df_processed, col_map = detect_columns(df_raw)
     all_col_names = [safe_str(c).replace(" ", "") for c in df_processed.columns] + [safe_str(c).replace(" ", "") for c in df_raw.columns]
     col_str_joined = "".join(all_col_names)
@@ -1034,8 +1098,8 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                         refined_rows.append(current_student_record)
                     current_student_record = None
 
-            # NEIS 진로활동 '희망분야' (Column F) 및 학생 희망분야 내용 (Column G) 검사
-            is_hope_row, hope_val = check_jinro_hope_field(row_dict)
+            # NEIS 진로활동 '희망사항' (Column I/F) 및 학생 희망진로 내용 (Column M) 검사
+            is_hope_row, hope_val = check_jinro_hope_field(row_dict, row)
             if is_hope_row:
                 active_area = "진로활동"
                 # Column F가 '희망분야'이고 Column G(학생 희망분야)가 비어있는 경우에만 정밀 오류 기록
@@ -1199,13 +1263,18 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
     content_col = col_map['content_col']
     extra_cols = col_map['extra_cols']
 
-    pattern = r'(((?:\([12]\s*학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]+))\s*[:：]'
+    pattern = r'(?:^|\n)\s*(((?:\([12]\s*학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]+))\s*[:：]'
     
     unfolded_rows = []
 
     for _, row in df.iterrows():
         try:
             raw_text = safe_str(row.get(content_col, ''))
+            if not raw_text:
+                continue
+
+            # 1. 줄바꿈 기호 표준화 (Alt+Enter, HTML <br>, \r\n -> \n)
+            text_norm = raw_text.replace('<br/>', '\n').replace('<br>', '\n').replace('\r\n', '\n').replace('\r', '\n')
             
             base_info = {
                 num_col: safe_val(row.get(num_col)),
@@ -1220,14 +1289,22 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
             if not clean_row_subj or clean_row_subj.lower() == 'nan':
                 clean_row_subj = '세부능력및특기사항'
 
-            if not raw_text:
-                continue
+            ignore_hdr_keywords = [
+                '주제', '탐구주제', '탐구 주제', '결과', '활동결과', '활동 결과', 
+                '느낀점', '느낀 점', '소감', '의견', '참고문헌', '참고 문헌', '내용', '활동내용'
+            ]
 
             matches = []
-            for m in re.finditer(pattern, raw_text):
+            for m in re.finditer(pattern, text_norm):
                 full_hdr = m.group(1).strip()
+                clean_candidate = clean_subject_name(full_hdr)
                 byte_len = len(full_hdr.encode('euc-kr', errors='ignore'))
-                if byte_len <= 35 and len(full_hdr) >= 1:
+                
+                # Exclude common body colon phrases
+                if clean_candidate in ignore_hdr_keywords or re.match(r'^\d+[\.\)]\s*', clean_candidate):
+                    continue
+
+                if byte_len <= 30 and len(full_hdr) >= 1:
                     matches.append({
                         'start_full': m.start(),
                         'start_hdr': m.start(1),
@@ -1238,20 +1315,18 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
             if not matches:
                 item = base_info.copy()
                 item['과목명'] = clean_row_subj
-                item['내용'] = raw_text
-                item['글자수'] = len(raw_text)
+                item['내용'] = text_norm.replace('\n', ' ').strip()
+                item['글자수'] = len(item['내용'])
                 unfolded_rows.append(item)
                 continue
 
-            # 동일 과목(1학기/2학기 등)의 서술문 내용을 순수 과목명 단위로 통합 병합
-            subj_snippets = {}
-
+            subj_snippets = []
             for i in range(len(matches)):
                 m_curr = matches[i]
                 start_content = m_curr['end_hdr']
-                end_content = matches[i+1]['start_full'] if i + 1 < len(matches) else len(raw_text)
+                end_content = matches[i+1]['start_full'] if i + 1 < len(matches) else len(text_norm)
                 
-                snippet = raw_text[start_content:end_content].strip()
+                snippet = text_norm[start_content:end_content].strip()
                 raw_hdr = m_curr['hdr_text']
                 
                 sem_match = re.search(r'\(([12]\s*학기)\)', raw_hdr)
@@ -1261,13 +1336,43 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
                 if not clean_subj:
                     clean_subj = clean_row_subj
                 
-                if clean_subj not in subj_snippets:
-                    subj_snippets[clean_subj] = []
-                subj_snippets[clean_subj].append((sem_tag, snippet))
+                subj_snippets.append({
+                    'subject': clean_subj,
+                    'sem_tag': sem_tag,
+                    'content': snippet,
+                    'raw_hdr': raw_hdr
+                })
 
-            for clean_subj, snippets in subj_snippets.items():
+            # 엔터 2번(\n\n)으로 나뉜 문단 중 과목명이 없는 마지막 문단은 개세특 처리
+            double_enter_blocks = re.split(r'\n\s*\n', text_norm)
+            if len(double_enter_blocks) > 1:
+                last_block = double_enter_blocks[-1].strip()
+                if last_block and not re.match(r'^(?:\([12]\s*학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]{1,20}\s*[:：]', last_block):
+                    if subj_snippets:
+                        last_snip_content = subj_snippets[-1]['content']
+                        if last_block in last_snip_content:
+                            pos = last_snip_content.rfind(last_block)
+                            if pos >= 0:
+                                subj_snippets[-1]['content'] = last_snip_content[:pos].strip()
+                            subj_snippets.append({
+                                'subject': '개세특',
+                                'sem_tag': '',
+                                'content': last_block,
+                                'raw_hdr': '개세특'
+                            })
+
+            grouped = {}
+            for item_snip in subj_snippets:
+                s_name = item_snip['subject']
+                if s_name not in grouped:
+                    grouped[s_name] = []
+                grouped[s_name].append(item_snip)
+
+            for s_name, item_list in grouped.items():
                 combined_parts = []
-                for sem_tag, text_part in snippets:
+                for snip in item_list:
+                    text_part = snip['content'].replace('\n', ' ').strip()
+                    sem_tag = snip['sem_tag']
                     if text_part:
                         if sem_tag and not text_part.startswith(sem_tag):
                             combined_parts.append(f"{sem_tag} {text_part}")
@@ -1275,12 +1380,12 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
                             combined_parts.append(text_part)
                 
                 full_combined = " ".join(combined_parts).strip()
-                
-                item = base_info.copy()
-                item['과목명'] = clean_subj
-                item['내용'] = full_combined
-                item['글자수'] = len(full_combined)
-                unfolded_rows.append(item)
+                if full_combined:
+                    item = base_info.copy()
+                    item['과목명'] = s_name
+                    item['내용'] = full_combined
+                    item['글자수'] = len(full_combined)
+                    unfolded_rows.append(item)
 
         except Exception as e:
             st.error(f"세특 과목 분리 처리 중 예외 발생 ({row.get(name_col, '')}): {str(e)}")
@@ -1371,10 +1476,8 @@ def auto_detect_current_grade(data_store: dict) -> int:
 
 def auto_detect_class_number(data_store: dict) -> int:
     """
-    창체(셀 A3), 세특(셀 A4), 행특(셀 A3) 등 각 영역별 원본 raw_df 지정 셀 위치를 최우선(1순위) 정밀 검체하여
-    반 번호(예: 1반, 2반 -> 302XX 학번)를 100% 오차 없이 자동 감지합니다.
+    창체(B6), 세특(B8/B6), 행특(B6) 등 각 영역별 원본 raw_df 지정 셀 위치를 점검하여 반 번호를 자동 감지합니다.
     """
-    # 1. raw_df 원본 엑셀 지정 셀 위치 (세특: A4셀, 창체/행특: A3셀) 최우선(1순위) 점검
     for t_key in ["창체", "세특", "행특"]:
         if t_key not in data_store or data_store[t_key] is None:
             continue
@@ -1387,44 +1490,9 @@ def auto_detect_class_number(data_store: dict) -> int:
         if raw_df is None or raw_df.empty:
             continue
 
-        specific_cell_str = ""
-        try:
-            if t_key == "세특" and len(raw_df) >= 4:
-                specific_cell_str = str(raw_df.iloc[3, 0])
-            elif len(raw_df) >= 3:
-                specific_cell_str = str(raw_df.iloc[2, 0])
-        except Exception:
-            pass
-
-        if specific_cell_str and pd.notna(specific_cell_str):
-            m_spec = re.search(r'\d+\s*학년\s*(\d+)\s*반', str(specific_cell_str))
-            if m_spec:
-                return int(m_spec.group(1))
-
-        sample_str = " ".join([str(v) for v in raw_df.astype(str).values.flatten()[:500] if pd.notna(v)])
-        m_ban = re.search(r'\d+\s*학년\s*(\d+)\s*반', sample_str)
-        if m_ban:
-            return int(m_ban.group(1))
-
-        m_ban2 = re.search(r'(\d+)\s*반', sample_str)
-        if m_ban2:
-            return int(m_ban2.group(1))
-
-    # 2. raw_df 셀에서 반 정보를 찾지 못했을 경우에만 본문 5자리 학번 패턴 점검
-    for t_key in ["창체", "세특", "행특"]:
-        if t_key not in data_store or data_store[t_key] is None:
-            continue
-        item = data_store[t_key]
-        df = item['df']
-        c_map = item['col_map']
-        num_c = c_map.get('num_col')
-        if num_c and num_c in df.columns:
-            num_vals = [re.sub(r'\D', '', str(v)) for v in df[num_c].values if pd.notna(v)]
-            five_digit_ids = [v for v in num_vals if len(v) == 5]
-            if five_digit_ids:
-                ban_digits = [int(v[1:3]) for v in five_digit_ids if 1 <= int(v[1:3]) <= 30]
-                if ban_digits:
-                    return ban_digits[0]
+        g_num, b_num = extract_current_grade_class(raw_df)
+        if b_num:
+            return b_num
 
     return 1
 
@@ -2041,10 +2109,19 @@ def main():
     # 사이드바 Layout & Expanders
     # --------------------------------------------------------------------------
     with st.sidebar:
-        st.markdown("""
-            <div style="padding: 0.2rem 0 0.6rem 0;">
-                <h2 style="font-size: 1.45rem; font-weight: 800; color: #1E3A8A; margin: 0; line-height: 1.2;">꼼체크체크</h2>
-                <div style="font-size: 0.82rem; font-weight: 600; color: #64748B; margin-top: 0.25rem; letter-spacing: -0.2px;">생기부 AI 검증 시스템</div>
+        fav_b64 = get_favicon_b64()
+        if fav_b64:
+            icon_tag = f'<img src="data:image/png;base64,{fav_b64}" style="width: 28px; height: 28px; object-fit: contain; vertical-align: middle; margin-right: 0.45rem;" />'
+        else:
+            icon_tag = '<span style="font-size: 1.35rem; margin-right: 0.35rem; vertical-align: middle;">📋</span>'
+
+        st.markdown(f"""
+            <div style="padding: 0.2rem 0 0.8rem 0; border-bottom: 1px solid #E2E8F0; margin-bottom: 0.85rem;">
+                <div style="display: flex; align-items: center;">
+                    {icon_tag}
+                    <h2 style="font-size: 1.4rem; font-weight: 800; color: #0F172A; margin: 0; line-height: 1.2; letter-spacing: -0.4px;">꼼체크체크</h2>
+                </div>
+                <div style="font-size: 0.88rem; font-weight: 600; color: #475569; margin-top: 0.3rem; letter-spacing: -0.2px;">생기부 AI 검증 시스템</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -2067,8 +2144,10 @@ def main():
             if key_input_id not in st.session_state:
                 st.session_state[key_input_id] = st.session_state['api_key_store'].get(provider, "")
 
+            st.markdown(f'<div style="color: #B91C1C; font-weight: 700; font-size: 0.88rem; margin-bottom: 0.3rem;">{provider} API Key 입력</div>', unsafe_allow_html=True)
             api_key = st.text_input(
                 f"{provider} API Key 입력",
+                label_visibility="collapsed",
                 type="password",
                 key=key_input_id,
                 help="Google AI Studio / OpenAI / Anthropic에서 발급받은 개인 API Key를 입력해 주세요."
@@ -2113,7 +2192,15 @@ def main():
             if uploaded_files:
                 for uploaded_file in uploaded_files:
                     try:
-                        raw_df = pd.read_excel(uploaded_file)
+                        try:
+                            raw_df = pd.read_excel(uploaded_file, header=None)
+                        except Exception:
+                            uploaded_file.seek(0)
+                            html_dfs = pd.read_html(uploaded_file)
+                            if html_dfs:
+                                raw_df = html_dfs[0]
+                            else:
+                                raise
                         type_key = detect_actual_record_type(uploaded_file.name, raw_df)
 
                         file_sig = f"{type_key}_{uploaded_file.name}_{uploaded_file.size}"
