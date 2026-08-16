@@ -7,6 +7,7 @@ import requests
 import pandas as pd
 import numpy as np
 import streamlit as st
+import streamlit.components.v1 as stc
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -249,6 +250,8 @@ st.markdown("""
         color: #5B21B6 !important;
         font-weight: 700 !important;
         font-size: 0.95rem !important;
+    }
+
     /* API Key Label - Bold Dark Red */
     section[data-testid="stSidebar"] div[data-testid="stTextInput"] label,
     section[data-testid="stSidebar"] div[data-testid="stTextInput"] label p {
@@ -256,49 +259,62 @@ st.markdown("""
         font-weight: 700 !important;
     }
 
-    /* Form Controls - Crisp Visible Borders for Selectbox & Inputs */
-    [data-baseweb="select"],
-    [data-baseweb="input"],
-    div[data-testid="stForm"],
-    input, select, textarea {
-        background-color: #FFFFFF !important;
-        color: #0F172A !important;
-    }
+    /* Form Controls - Clear Distinct Background (#E2E8F0) & Sleek Slate Border */
+    div[data-baseweb="select"],
     div[data-baseweb="select"] > div,
+    div[data-baseweb="input"],
     div[data-baseweb="input"] > div,
-    div[data-testid="stSelectbox"] > div > div,
-    div[data-testid="stTextInput"] > div > div,
-    div[role="combobox"] {
-        border: 1.2px solid #94A3B8 !important;
+    div[data-baseweb="base-input"],
+    div[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+    div[data-testid="stTextInput"] [data-baseweb="input"] > div,
+    div:has(> input[role="combobox"]),
+    div:has(> input[type="password"]),
+    div:has(> input[aria-label*="Key"]),
+    div:has(> input.ef5iutx2),
+    div:has(> input.e1fp86qc1) {
+        background-color: #E2E8F0 !important;
+        border: 1.5px solid #94A3B8 !important;
         border-radius: 8px !important;
-        background-color: #FFFFFF !important;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
-    }
-    div[data-baseweb="select"] svg {
-        fill: #334155 !important;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08) !important;
     }
 
-    /* File Uploader styling - Modern Soft Dashed Border */
-    [data-testid="stFileUploader"] {
-        background-color: #FFFFFF !important;
-        border: 1.5px dashed #94A3B8 !important;
-        border-radius: 12px !important;
-        padding: 1rem !important;
-    }
-    [data-testid="stFileUploader"] section {
-        background-color: #F8FAFC !important;
-        border: 1px solid #CBD5E1 !important;
-        border-radius: 8px !important;
-    }
-    [data-testid="stFileUploader"] * {
-        color: #334155 !important;
+    /* Input Text & Selected Value Color */
+    div[data-baseweb="select"] * {
+        color: #0F172A !important;
         font-weight: 600 !important;
+    }
+    div[data-baseweb="input"] input,
+    input[role="combobox"],
+    input[type="password"],
+    input[type="text"],
+    input {
+        color: #0F172A !important;
+        font-weight: 600 !important;
+        background-color: transparent !important;
+    }
+
+    div[data-baseweb="select"] svg,
+    div[data-baseweb="input"] svg {
+        fill: #1E293B !important;
+        color: #1E293B !important;
+    }
+
+    div[data-baseweb="select"] > div:hover,
+    div[data-baseweb="input"] > div:hover {
+        border-color: #2563EB !important;
+        background-color: #DBEAFE !important;
+    }
+
+    /* File Uploader - Minimal spacing */
+    [data-testid="stFileUploader"],
+    .stFileUploader {
+        padding: 0 !important;
+        border: none !important;
+        background: transparent !important;
     }
 
     /* General Buttons - Balanced Clean Border */
-    div.stButton > button:not([kind="primary"]):not([data-testid="stBaseButton-primary"]),
-    [data-testid="stBaseButton-secondary"],
-    [data-testid="stFileUploader"] button {
+    div.stButton > button:not([kind="primary"]):not([data-testid="stBaseButton-primary"]) {
         background-color: #FFFFFF !important;
         background: #FFFFFF !important;
         color: #0F172A !important;
@@ -308,9 +324,7 @@ st.markdown("""
         transition: all 0.2s ease !important;
         box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
     }
-    div.stButton > button:not([kind="primary"]):not([data-testid="stBaseButton-primary"]) *,
-    [data-testid="stBaseButton-secondary"] *,
-    [data-testid="stFileUploader"] button * {
+    div.stButton > button:not([kind="primary"]):not([data-testid="stBaseButton-primary"]) * {
         color: #0F172A !important;
     }
 
@@ -2109,19 +2123,10 @@ def main():
     # 사이드바 Layout & Expanders
     # --------------------------------------------------------------------------
     with st.sidebar:
-        fav_b64 = get_favicon_b64()
-        if fav_b64:
-            icon_tag = f'<img src="data:image/png;base64,{fav_b64}" style="width: 28px; height: 28px; object-fit: contain; vertical-align: middle; margin-right: 0.45rem;" />'
-        else:
-            icon_tag = '<span style="font-size: 1.35rem; margin-right: 0.35rem; vertical-align: middle;">📋</span>'
-
-        st.markdown(f"""
-            <div style="padding: 0.2rem 0 0.8rem 0; border-bottom: 1px solid #E2E8F0; margin-bottom: 0.85rem;">
-                <div style="display: flex; align-items: center;">
-                    {icon_tag}
-                    <h2 style="font-size: 1.4rem; font-weight: 800; color: #0F172A; margin: 0; line-height: 1.2; letter-spacing: -0.4px;">꼼체크체크</h2>
-                </div>
-                <div style="font-size: 0.88rem; font-weight: 600; color: #475569; margin-top: 0.3rem; letter-spacing: -0.2px;">생기부 AI 검증 시스템</div>
+        st.markdown("""
+            <div style="padding: 0.2rem 0 0.8rem 0; border-bottom: 1px solid #E2E8F0; margin-bottom: 0.85rem; text-align: center;">
+                <h2 style="font-size: 1.45rem; font-weight: 800; color: #0F172A; margin: 0; line-height: 1.2; letter-spacing: -0.4px;">꼼체크체크</h2>
+                <div style="font-size: 0.88rem; font-weight: 600; color: #475569; margin-top: 0.35rem; letter-spacing: -0.2px;">생기부 AI 검증 시스템</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -2181,13 +2186,71 @@ def main():
                     """)
 
         with st.expander("엑셀 파일 업로드", expanded=True):
+            # Custom dropzone label
+            st.markdown('''
+            <div style="background-color: #F8FAFC; border: 2px dashed #94A3B8; border-radius: 12px;
+                        padding: 1rem; text-align: center; margin-bottom: -0.5rem;">
+                <div style="font-size: 0.9rem; font-weight: 700; color: #1E293B; line-height: 1.6;">
+                    여기에 생기부 엑셀 파일 드롭
+                </div>
+                <div style="font-size: 0.78rem; font-weight: 500; color: #64748B; margin-top: 0.2rem;">
+                    (또는 아래에서 파일 선택)
+                </div>
+            </div>
+            ''', unsafe_allow_html=True)
             uploader_key = f"auto_file_uploader_{st.session_state.get('uploader_key_version', 0)}"
             uploaded_files = st.file_uploader(
                 "생기부 엑셀 파일 (.xlsx, .xls)",
                 type=["xlsx", "xls"],
                 accept_multiple_files=True,
-                key=uploader_key
+                key=uploader_key,
+                label_visibility="collapsed"
             )
+
+            # Inject CSS into parent document to hide Upload button (bypasses Emotion CSS)
+            stc.html("""
+            <script>
+            (function() {
+                var doc = window.parent.document;
+                // Check if our style is already injected
+                if (doc.getElementById('hide-upload-btn-style')) return;
+                var style = doc.createElement('style');
+                style.id = 'hide-upload-btn-style';
+                style.textContent = `
+                    /* Hide ALL Upload buttons inside file uploaders */
+                    section[role="presentation"] button,
+                    section[role="presentation"] > span,
+                    [data-testid="stFileUploaderDropzone"] button,
+                    [data-testid="stFileUploader"] button {
+                        display: none !important;
+                        visibility: hidden !important;
+                        height: 0 !important;
+                        width: 0 !important;
+                        overflow: hidden !important;
+                        position: absolute !important;
+                        clip: rect(0,0,0,0) !important;
+                    }
+                    /* Hide entire dropzone shell (empty box after button removal) */
+                    section[role="presentation"] {
+                        border: none !important;
+                        background: transparent !important;
+                        padding: 0 !important;
+                        margin: 0 !important;
+                        min-height: 0 !important;
+                        height: 0 !important;
+                        overflow: hidden !important;
+                    }
+                    /* Also hide "Drag and drop file here" and "Limit 200MB per file" text */
+                    section[role="presentation"] small,
+                    [data-testid="stFileUploaderDropzone"] small {
+                        display: none !important;
+                    }
+                `;
+                doc.head.appendChild(style);
+            })();
+            </script>
+            """, height=0)
+
 
             if uploaded_files:
                 for uploaded_file in uploaded_files:
