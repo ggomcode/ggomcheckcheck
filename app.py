@@ -5,6 +5,7 @@ import json
 import traceback
 import requests
 import pandas as pd
+import numpy as np
 import streamlit as st
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -23,7 +24,7 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 # 페이지 기본 설정 & CSS 커스텀 스타일링 (Light Theme & Premium Card Aesthetics)
 # ==============================================================================
 st.set_page_config(
-    page_title="학교생활기록부 AI 정밀 검증 시스템",
+    page_title="꼼체크체크 - 생기부 AI 정밀 검증 시스템",
     page_icon=None,
     layout="wide",
     initial_sidebar_state="expanded"
@@ -574,10 +575,50 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 # ==============================================================================
 # 3. 텍스트 정제 및 지능형 텍스트 결합 헬퍼 함수
 # ==============================================================================
+def safe_val(val, default=""):
+    """
+    pd.Series, numpy array, list, 또는 단일 스칼라 값을 안전하게 단일 값으로 변환합니다.
+    """
+    if val is None:
+        return default
+    if isinstance(val, (pd.Series, np.ndarray, list)):
+        if len(val) == 0:
+            return default
+        val = val.iloc[0] if isinstance(val, pd.Series) else val[0]
+    if pd.isna(val):
+        return default
+    return val
+
+
+def safe_str(val, default="") -> str:
+    """
+    pd.Series, numpy array 등이 들어와도 Ambiguous Error 없이 안전하게 단일 문자열로 변환합니다.
+    """
+    v = safe_val(val, default)
+    return str(v).strip()
+
+
+def safe_notna(val) -> bool:
+    """
+    pd.Series, numpy array 등이 들어와도 Ambiguous Error 없이 안전하게 pd.notna 검사를 수행합니다.
+    """
+    if val is None:
+        return False
+    if isinstance(val, (pd.Series, np.ndarray, list)):
+        if len(val) == 0:
+            return False
+        val = val.iloc[0] if isinstance(val, pd.Series) else val[0]
+    return bool(pd.notna(val))
+
+
+def safe_isna(val) -> bool:
+    return not safe_notna(val)
+
+
 def clean_text_content(text) -> str:
-    if pd.isna(text) or text is None:
+    if safe_isna(text):
         return ""
-    text_str = str(text)
+    text_str = safe_str(text)
     text_str = text_str.replace('\r\n', ' ').replace('\n', ' ').replace('\t', ' ')
     text_str = re.sub(r'\s+', ' ', text_str)
     return text_str.strip()
@@ -588,8 +629,8 @@ def get_changche_area_from_cell(area_cell, text_cell) -> str:
     엑셀 셀에 입력된 영역명 컬럼 값 및 기재 텍스트 형태(예: 접두어/키워드)를
     직접 분석하여 '자율활동', '동아리활동', '진로활동' 중 올바른 영역 1개를 추출합니다.
     """
-    a_str = str(area_cell).strip() if pd.notna(area_cell) else ""
-    t_str = str(text_cell).strip() if pd.notna(text_cell) else ""
+    a_str = safe_str(area_cell)
+    t_str = safe_str(text_cell)
 
     if '자율' in a_str:
         return '자율활동'
@@ -613,7 +654,7 @@ def check_jinro_hope_field(row_dict: dict) -> tuple:
     진로활동 영역에서 '희망분야' (Column F) 항목 및 학생이 기입한 실제 희망분야 내용 (Column G, 예: '작곡가', 'PD' 등)을 검사합니다.
     Returns: (is_hope_row: bool, hope_value: str)
     """
-    row_values = [str(v).strip() for v in row_dict.values() if pd.notna(v)]
+    row_values = [safe_str(v) for v in row_dict.values() if safe_notna(v)]
     for idx, val in enumerate(row_values):
         if len(val) <= 20 and ('희망분야' in val or '희망 분야' in val):
             hope_val = ""
@@ -658,11 +699,11 @@ def smart_concatenate_text(base_text: str, append_text: str) -> str:
 # 4. 동적 컬럼 자동 매핑 및 가비지 컬럼 제거 헬퍼
 # ==============================================================================
 def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool:
-    vals = [str(v).strip() for v in row_dict.values() if pd.notna(v)]
+    vals = [safe_str(v) for v in row_dict.values() if safe_notna(v)]
     combined = "".join(vals).replace(" ", "")
 
-    num_val_str = str(row_dict.get(num_col, '')).replace(" ", "") if num_col else ""
-    name_val_str = str(row_dict.get(name_col, '')).replace(" ", "") if name_col else ""
+    num_val_str = safe_str(row_dict.get(num_col, '')).replace(" ", "") if num_col else ""
+    name_val_str = safe_str(row_dict.get(name_col, '')).replace(" ", "") if name_col else ""
 
     if re.search(r'<[가-힣\sㆍ·/]+>', num_val_str):
         return True
@@ -738,18 +779,18 @@ def detect_columns(df: pd.DataFrame) -> tuple:
 
     header_idx = None
     for idx in range(min(15, len(df_processed))):
-        row_str = "".join([str(v).replace(" ", "") for v in df_processed.iloc[idx].values if pd.notna(v)])
+        row_str = "".join([safe_str(v).replace(" ", "") for v in df_processed.iloc[idx].values if safe_notna(v)])
         if '번호' in row_str and ('성명' in row_str or '이름' in row_str):
             header_idx = idx
             break
 
     if header_idx is not None:
-        h1 = [str(v).strip() for v in df_processed.iloc[header_idx].values]
+        h1 = [safe_str(v) for v in df_processed.iloc[header_idx].values]
         skip_rows = 1
         if header_idx + 1 < len(df_processed):
-            h2_str = "".join([str(v).replace(" ", "") for v in df_processed.iloc[header_idx + 1].values if pd.notna(v)])
+            h2_str = "".join([safe_str(v).replace(" ", "") for v in df_processed.iloc[header_idx + 1].values if safe_notna(v)])
             if any(k in h2_str for k in ['영역', '특기사항', '시간', '구분', '내용']):
-                h2 = [str(v).strip() for v in df_processed.iloc[header_idx + 1].values]
+                h2 = [safe_str(v) for v in df_processed.iloc[header_idx + 1].values]
                 combined = []
                 for c1, c2 in zip(h1, h2):
                     if c2 and c2.lower() != 'nan' and c2.lower() != 'none':
@@ -849,32 +890,70 @@ def detect_columns(df: pd.DataFrame) -> tuple:
 
 def detect_actual_record_type(filename: str, df_raw: pd.DataFrame) -> str:
     """
-    업로드된 파일명 및 엑셀 헤더/내용을 정밀 분석하여
-    데이터 유형("창체", "세특", "행특")을 자동으로 분류 판별합니다.
+    NEIS 엑셀 표준 서식 셀 위치(세특: G3, 행특: D2, 창체: C2) 및 내부 헤더, 컬럼 구조, 데이터 값을 분석하여
+    데이터 유형("창체", "세특", "행특")을 100% 정밀 판별합니다. (파일명은 완전히 무시)
     """
-    fn_clean = str(filename).lower()
-    
-    fn_type = None
-    if any(k in fn_clean for k in ['행특', '행동특성', '행발', '종합의견']):
-        fn_type = "행특"
-    elif any(k in fn_clean for k in ['창체', '창의적', '자율', '동아리', '진로']):
-        fn_type = "창체"
-    elif any(k in fn_clean for k in ['세특', '세부능력', '과목']):
-        fn_type = "세특"
+    def get_val(r, c):
+        if r < len(df_raw) and c < df_raw.shape[1]:
+            v = df_raw.iloc[r, c]
+            if safe_notna(v):
+                return safe_str(v).replace(" ", "")
+        return ""
 
-    all_text = ""
-    for idx in range(min(15, len(df_raw))):
-        all_text += " ".join([str(v) for v in df_raw.iloc[idx].values if pd.notna(v)]) + " "
-    
-    header_type = None
-    if '행동특성' in all_text or '종합의견' in all_text:
-        header_type = "행특"
-    elif '창의적' in all_text or '동아리활동' in all_text or '자율활동' in all_text or '진로활동' in all_text:
-        header_type = "창체"
-    elif '세부능력' in all_text or '과목명' in all_text:
-        header_type = "세특"
+    # NEIS 표준 셀 위치 검사:
+    # 세특: G3 (row 2, col 6) -> '학교생활기록부 세부능력 및 특기사항'
+    # 행특: D2 (row 1, col 3) -> '학교생활기록부 행동특성 및 종합의견'
+    # 창체: C2 (row 1, col 2) -> '학교생활기록부 창의적체험활동상황'
+    cell_g3 = get_val(2, 6)
+    cell_d2 = get_val(1, 3)
+    cell_c2 = get_val(1, 2)
 
-    return header_type or fn_type or "세특"
+    if '세부능력' in cell_g3 or '학교생활기록부세부능력' in cell_g3:
+        return "세특"
+    if '행동특성' in cell_d2 or '학교생활기록부행동특성' in cell_d2:
+        return "행특"
+    if '창의적체험활동' in cell_c2 or '학교생활기록부창의적체험활동' in cell_c2:
+        return "창체"
+
+    # 상단 5개 행 전수 조사 (셀 위치 오차나 병합 셀 보완)
+    top_rows_text = ""
+    for r in range(min(5, len(df_raw))):
+        row_str = "".join([safe_str(v).replace(" ", "") for v in df_raw.iloc[r].values if safe_notna(v)])
+        top_rows_text += row_str + " "
+
+    if '학교생활기록부창의적체험활동' in top_rows_text or '창의적체험활동상황' in top_rows_text or '영역별특기사항' in top_rows_text:
+        return "창체"
+    if '학교생활기록부행동특성' in top_rows_text or '행동특성및종합의견' in top_rows_text:
+        return "행특"
+    if '학교생활기록부세부능력' in top_rows_text or '세부능력및특기사항' in top_rows_text:
+        return "세특"
+
+    # 컬럼 파싱 및 영역 데이터 탐색 (추가 보완)
+    df_processed, col_map = detect_columns(df_raw)
+    all_col_names = [safe_str(c).replace(" ", "") for c in df_processed.columns] + [safe_str(c).replace(" ", "") for c in df_raw.columns]
+    col_str_joined = "".join(all_col_names)
+
+    area_vals = []
+    if col_map.get('area_col') and col_map['area_col'] in df_processed.columns:
+        area_vals = [safe_str(v).strip() for v in df_processed[col_map['area_col']].dropna().tolist()[:50]]
+    else:
+        for col in df_processed.columns:
+            vals = [safe_str(v).strip() for v in df_processed[col].dropna().tolist()[:30]]
+            if any(v in ['자율활동', '동아리활동', '진로활동', '자율', '동아리', '진로', '봉사활동', '개별영역'] for v in vals):
+                area_vals = vals
+                break
+
+    is_changche_area = any(v in ['자율활동', '동아리활동', '진로활동', '자율', '동아리', '진로', '봉사활동', '개별영역'] for v in area_vals)
+    if '창의적체험활동' in top_rows_text or '창체' in top_rows_text or is_changche_area:
+        return "창체"
+
+    if '행동특성' in top_rows_text or '종합의견' in top_rows_text or '행동특성' in col_str_joined or '종합의견' in col_str_joined:
+        return "행특"
+
+    if '세부능력' in top_rows_text or '과목명' in top_rows_text or '교과' in top_rows_text or '세특' in top_rows_text or '세부능력' in col_str_joined or '과목' in col_str_joined:
+        return "세특"
+
+    return "세특"
 
 
 # ==============================================================================
@@ -909,35 +988,36 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             if is_header_or_footer_row(row_dict, num_col, name_col):
                 continue
 
-            num_val = row[num_col] if num_col in row else None
-            name_val = row[name_col] if name_col in row else None
-            content_val = clean_text_content(row[content_col]) if content_col in row else ""
-            area_val = str(row[area_col]).strip() if area_col and area_col in row and pd.notna(row[area_col]) else ""
-            grade_val = str(row[grade_col]).strip().replace(".0", "") if grade_col and grade_col in row and pd.notna(row[grade_col]) else ""
+            num_val = safe_val(row[num_col]) if num_col and num_col in row else None
+            name_val = safe_val(row[name_col]) if name_col and name_col in row else None
+            content_val = clean_text_content(safe_val(row[content_col])) if content_col and content_col in row else ""
+            area_val = safe_str(row[area_col]) if area_col and area_col in row else ""
+            grade_val = safe_str(row[grade_col]).replace(".0", "") if grade_col and grade_col in row else ""
 
             hours_val = ""
             for h_col in ['시간', '시 간', '이수시간']:
-                if h_col in row and pd.notna(row[h_col]) and str(row[h_col]).strip() not in ['', 'nan', 'NaN', 'None']:
-                    hours_val = str(row[h_col]).strip().replace(".0", "")
-                    break
+                if h_col in row:
+                    h_v = safe_val(row[h_col])
+                    if safe_notna(h_v) and safe_str(h_v) not in ['', 'nan', 'NaN', 'None']:
+                        hours_val = safe_str(h_v).replace(".0", "")
+                        break
 
-            is_num_empty = pd.isna(num_val) or str(num_val).strip() in ['', 'nan', 'NaN', 'None']
-            is_name_empty = pd.isna(name_val) or str(name_val).strip() in ['', 'nan', 'NaN', 'None']
+            is_num_empty = safe_isna(num_val) or safe_str(num_val) in ['', 'nan', 'NaN', 'None']
+            is_name_empty = safe_isna(name_val) or safe_str(name_val) in ['', 'nan', 'NaN', 'None']
 
-            num_str = "" if is_num_empty else str(num_val).strip()
-            name_str = "" if is_name_empty else str(name_val).strip()
+            num_str = "" if is_num_empty else safe_str(num_val)
+            name_str = "" if is_name_empty else safe_str(name_val)
+
+            if grade_val and grade_val.lower() != 'none':
+                active_grade = grade_val
+            if hours_val:
+                active_hours = hours_val
+            if area_val and area_val.lower() != 'none' and area_val not in ['영역', '활동영역', '창의적체험활동', '구분', '세부']:
+                active_area = area_val
 
             if num_str and name_str:
                 active_num = num_str
                 active_name = name_str
-                if hours_val:
-                    active_hours = hours_val
-                if area_val and area_val.lower() != 'none' and area_val not in ['영역', '활동영역', '창의적체험활동', '구분', '세부']:
-                    active_area = area_val
-                if grade_val and grade_val.lower() != 'none':
-                    active_grade = grade_val
-            elif hours_val:
-                active_hours = hours_val
 
             target_num = num_str if num_str else active_num
             target_name = name_str if name_str else active_name
@@ -947,10 +1027,10 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 
             # 이전 학생의 레코드가 남아있는데 대상 학생(target_num/target_name)이 바뀐 경우 먼저 안전하게 플러시!
             if current_student_record is not None:
-                curr_n = current_student_record[num_col]
-                curr_nm = current_student_record[name_col]
+                curr_n = safe_str(current_student_record.get(num_col))
+                curr_nm = safe_str(current_student_record.get(name_col))
                 if curr_n != target_num or curr_nm != target_name:
-                    if str(current_student_record.get(content_col, '')).strip():
+                    if safe_str(current_student_record.get(content_col)):
                         refined_rows.append(current_student_record)
                     current_student_record = None
 
@@ -1098,6 +1178,18 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 # ==============================================================================
 # 6. 세특 과목명 및 학기 정보 자동 분리 로직 (Regex Engine)
 # ==============================================================================
+def clean_subject_name(raw_subj: str) -> str:
+    """
+    과목명에서 '(1학기)', '(2학기)', '(1 학기)', '(2 학기)' 등 학기 접두어를 제거하여
+    순수 과목명만 정제 추출합니다. (예: '(1학기) 국어' -> '국어')
+    """
+    if not raw_subj:
+        return ""
+    cleaned = safe_str(raw_subj).strip()
+    cleaned = re.sub(r'^\([12]\s*학기\)\s*', '', cleaned).strip()
+    return cleaned
+
+
 def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
     if df.empty:
         return df
@@ -1113,20 +1205,20 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
 
     for _, row in df.iterrows():
         try:
-            raw_text = str(row[content_col]) if pd.notna(row[content_col]) else ""
-            raw_text = raw_text.strip()
+            raw_text = safe_str(row.get(content_col, ''))
             
             base_info = {
-                num_col: row[num_col],
-                name_col: row[name_col],
+                num_col: safe_val(row.get(num_col)),
+                name_col: safe_val(row.get(name_col)),
             }
             for c in extra_cols:
                 if c not in ['_merged_count', '_merged_rows', '_original_excel_row']:
-                    base_info[c] = row[c]
+                    base_info[c] = safe_val(row.get(c))
 
-            row_subj = str(row.get('과목명', row.get('과목', ''))).strip()
-            if not row_subj or row_subj == 'nan':
-                row_subj = '세부능력및특기사항'
+            row_subj = safe_str(row.get('과목명', row.get('과목', '')))
+            clean_row_subj = clean_subject_name(row_subj)
+            if not clean_row_subj or clean_row_subj.lower() == 'nan':
+                clean_row_subj = '세부능력및특기사항'
 
             if not raw_text:
                 continue
@@ -1135,7 +1227,7 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
             for m in re.finditer(pattern, raw_text):
                 full_hdr = m.group(1).strip()
                 byte_len = len(full_hdr.encode('euc-kr', errors='ignore'))
-                if byte_len <= 30 and len(full_hdr) >= 1:
+                if byte_len <= 35 and len(full_hdr) >= 1:
                     matches.append({
                         'start_full': m.start(),
                         'start_hdr': m.start(1),
@@ -1145,24 +1237,49 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
 
             if not matches:
                 item = base_info.copy()
-                item['과목명'] = row_subj
+                item['과목명'] = clean_row_subj
                 item['내용'] = raw_text
                 item['글자수'] = len(raw_text)
                 unfolded_rows.append(item)
                 continue
+
+            # 동일 과목(1학기/2학기 등)의 서술문 내용을 순수 과목명 단위로 통합 병합
+            subj_snippets = {}
 
             for i in range(len(matches)):
                 m_curr = matches[i]
                 start_content = m_curr['end_hdr']
                 end_content = matches[i+1]['start_full'] if i + 1 < len(matches) else len(raw_text)
                 
-                content_snippet = raw_text[start_content:end_content].strip()
-                subj_name = m_curr['hdr_text']
+                snippet = raw_text[start_content:end_content].strip()
+                raw_hdr = m_curr['hdr_text']
+                
+                sem_match = re.search(r'\(([12]\s*학기)\)', raw_hdr)
+                sem_tag = f"({sem_match.group(1).replace(' ', '')})" if sem_match else ""
+                
+                clean_subj = clean_subject_name(raw_hdr)
+                if not clean_subj:
+                    clean_subj = clean_row_subj
+                
+                if clean_subj not in subj_snippets:
+                    subj_snippets[clean_subj] = []
+                subj_snippets[clean_subj].append((sem_tag, snippet))
 
+            for clean_subj, snippets in subj_snippets.items():
+                combined_parts = []
+                for sem_tag, text_part in snippets:
+                    if text_part:
+                        if sem_tag and not text_part.startswith(sem_tag):
+                            combined_parts.append(f"{sem_tag} {text_part}")
+                        else:
+                            combined_parts.append(text_part)
+                
+                full_combined = " ".join(combined_parts).strip()
+                
                 item = base_info.copy()
-                item['과목명'] = subj_name
-                item['내용'] = content_snippet
-                item['글자수'] = len(content_snippet)
+                item['과목명'] = clean_subj
+                item['내용'] = full_combined
+                item['글자수'] = len(full_combined)
                 unfolded_rows.append(item)
 
         except Exception as e:
@@ -1173,13 +1290,15 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
 
 def extract_row_grade(row: pd.Series, c_map: dict, num_str: str, sub_cat: str = "") -> int:
     """
-    행 레코드에서 이수학년(1학년, 2학년, 3학년)을 다각도로 정밀 분석하여 추출합니다.
+    행 레코드에서 이수학년(1학년, 2학년, 3학년)을 추출합니다.
+    DB 하드코딩에 의존하지 않고, 엑셀 파일 내부의 '학년' 열 값 및 계승된 행 서식 데이터를 100% 우선 적용합니다.
     """
     row_dict = row.to_dict()
     
+    # 1. 엑셀 행/레코드의 학년 열 지정 값 검사 (최우선)
     grade_col_candidates = [
         c for c in row.index 
-        if any(k in str(c).replace(" ", "").lower() for k in ['학년', 'grade'])
+        if any(k in str(c).replace(" ", "").lower() for k in ['학년', 'grade', '이수학년'])
         and not str(c).startswith('_')
     ]
     
@@ -1192,29 +1311,19 @@ def extract_row_grade(row: pd.Series, c_map: dict, num_str: str, sub_cat: str = 
         if m_num:
             return int(m_num.group())
 
-    row_text = " ".join([str(v) for k, v in row_dict.items() if pd.notna(v) and not str(k).startswith('_')])
+    # 2. 행 텍스트 내 학년 표기 검사
+    row_text = " ".join([safe_str(v) for k, v in row_dict.items() if safe_notna(v) and not str(k).startswith('_')])
     full_text = f"{sub_cat} {row_text}"
 
     m_text = re.search(r'([1-3])\s*학년', full_text)
     if m_text:
         return int(m_text.group(1))
 
-    grade2_subjs = [
-        '문학', '독서', '수학Ⅰ', '수학1', '수학Ⅱ', '수학2', '영어Ⅰ', '영어1', '영어Ⅱ', '영어2', 
-        '물리학Ⅰ', '물리학1', '화학Ⅰ', '화학1', '생명과학Ⅰ', '생명과학1', '지구과학Ⅰ', '지구과학1',
-        '한국지리', '세계지리', '동아시아사', '세계사', '경제', '정치와 법', '사회·문화', '사회문화'
-    ]
-    if any(s in full_text for s in grade2_subjs):
-        return 2
-
-    grade1_subjs = ['통합사회', '통합과학', '과학탐구실험', '한국사', '공통국어', '공통수학', '공통영어']
-    if any(s in full_text for s in grade1_subjs):
-        return 1
-
+    # 3. 5자리 학번(예: 30101 -> 3학년)의 첫 번째 자릿수 검사
     if len(num_str) == 5 and num_str[0] in ['1', '2', '3']:
         return int(num_str[0])
 
-    return 1
+    return 3
 
 
 def auto_detect_current_grade(data_store: dict) -> int:
@@ -1344,16 +1453,18 @@ def prepare_records_for_llm(data_store: dict, target_current_grade: int = None) 
         num_c, name_c, content_c = c_map['num_col'], c_map['name_col'], c_map['content_col']
 
         for _, row in df.iterrows():
-            num_raw = str(row.get(num_c, ''))
-            name_val = str(row.get(name_c, '')).strip()
+            num_raw = safe_str(row.get(num_c, ''))
+            name_val = safe_str(row.get(name_c, ''))
             num_str = re.sub(r'\D', '', num_raw)
 
-            text_content = str(row.get('내용', row.get(content_c, '')))
+            text_content = safe_str(row.get('내용', row.get(content_c, '')))
             if t_key == "창체":
-                raw_sub = str(row.get('sub_category', row.get('영역', row.get('활동영역', '')))).strip()
+                raw_sub = safe_str(row.get('sub_category', row.get('영역', row.get('활동영역', ''))))
                 sub_cat = get_changche_area_from_cell(raw_sub, text_content)
             elif t_key == "세특":
-                sub_cat = str(row.get('과목명', row.get('과목', '과목미지정'))).strip()
+                sub_cat = safe_str(row.get('과목명', row.get('과목', '과목미지정')))
+                if not sub_cat or sub_cat == 'nan':
+                    sub_cat = "세부능력및특기사항"
             else:
                 sub_cat = "행동특성"
 
@@ -1365,12 +1476,13 @@ def prepare_records_for_llm(data_store: dict, target_current_grade: int = None) 
 
             hours_val = ""
             for h_col in ['시간', '시 간', '이수시간']:
-                if h_col in row and pd.notna(row[h_col]):
-                    hours_val = str(row[h_col]).strip()
-                    break
+                if h_col in row:
+                    h_v = safe_val(row[h_col])
+                    if safe_notna(h_v) and safe_str(h_v) not in ['', 'nan', 'NaN', 'None']:
+                        hours_val = safe_str(h_v).replace(".0", "")
+                        break
 
             category_map = {"창체": "창체", "세특": "세특", "행특": "행발"}
-            text_content = str(row.get('내용', row.get(content_c, ''))).strip()
             if text_content and text_content not in ['희망분야', '희망 분야', '희망분야:']:
                 raw_records.append({
                     "num_str": num_str,
@@ -1930,8 +2042,9 @@ def main():
     # --------------------------------------------------------------------------
     with st.sidebar:
         st.markdown("""
-            <div style="padding: 0.2rem 0 0.5rem 0;">
-                <h2 style="font-size: 1.25rem; font-weight: 800; color: #1E3A8A; margin: 0;">생기부 AI 검증 시스템</h2>
+            <div style="padding: 0.2rem 0 0.6rem 0;">
+                <h2 style="font-size: 1.45rem; font-weight: 800; color: #1E3A8A; margin: 0; line-height: 1.2;">꼼체크체크</h2>
+                <div style="font-size: 0.82rem; font-weight: 600; color: #64748B; margin-top: 0.25rem; letter-spacing: -0.2px;">생기부 AI 검증 시스템</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -2053,12 +2166,15 @@ def main():
                             hb_list = st.session_state.get('data_store', {}).get('hope_blank_records', [])
                             blank_cnt = len(hb_list) if hb_list else 0
                             if actual_records_cnt == expected_total:
-                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, 93개 영역 100% 감지 완료)")
+                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {expected_total}개 영역 100% 감지 완료)")
                             elif actual_records_cnt + blank_cnt == expected_total:
                                 st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, 서술문 {actual_records_cnt}개 + 희망분야 공란 {blank_cnt}개 100% 감지)")
                             else:
                                 missing_cnt = expected_total - actual_records_cnt
-                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {actual_records_cnt}개 영역 기록, 미작성/공란 {missing_cnt}개 영역)")
+                                if missing_cnt > 0:
+                                    st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {actual_records_cnt}개 영역 기록, 미작성/공란 {missing_cnt}개 영역)")
+                                else:
+                                    st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {actual_records_cnt}개 영역 기록)")
                         elif type_key == "세특":
                             st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {len(final_df)}개 과목 기록)")
                         else:
@@ -2103,7 +2219,7 @@ def main():
                     <p style="font-size: 0.9rem; color: #64748B; margin-bottom: 1rem;">왼쪽 사이드바에서 세특, 창체, 또는 행특 엑셀 파일을 업로드해 주세요.</p>
                     <div style="display: inline-block; text-align: left; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 10px; padding: 0.9rem 1.2rem; font-size: 0.85rem; color: #475569; max-width: 600px; line-height: 1.6;">
                         📌 <b>NEIS 엑셀 파일 다운로드 안내</b><br>
-                        나이스(NEIS) <b>학교생활기록부 ➔ 영역별 조회</b>에서 아래 영역을 <b>xls data</b> 형식으로 다운로드해 사용해 주세요.
+                        <b>나이스(NEIS) 접속 ➔ 학교생활기록부 ➔ 학생부 영역별 조회</b>에서 아래 영역을 <b>XLS 형식</b>으로 다운로드해 사용해 주세요. <span style="color: #DC2626; font-weight: 600;">(※XLS data 형식으로 다운로드 하면 안됩니다.)</span>
                         <ul style="margin: 0.4rem 0 0 1.2rem; padding: 0;">
                             <li><b>창의적체험활동</b></li>
                             <li><b>교과학습발달상황</b> (세부능력및특기사항)</li>
@@ -2138,7 +2254,7 @@ def main():
                         def update_progress(current_b, total_b):
                             pct = current_b / total_b
                             progress_bar.progress(pct)
-                            status_text.info(f"AI 정밀 검사 진행 중... [{current_b}/{total_b} 배치 완료] (250k 쿼터 보호 분할 처리)")
+                            status_text.info(f"AI 정밀 검사 진행 중... [{current_b}/{total_b} 배치 완료]")
 
                         try:
                             records_payload = prepare_records_for_llm(st.session_state['data_store'])
@@ -2375,9 +2491,9 @@ def main():
                 c_map = data_item['col_map']
                 num_c, name_c = c_map['num_col'], c_map['name_col']
                 for _, r in df_temp.iterrows():
-                    num_val, name_val = r.get(num_c, ''), r.get(name_c, '')
-                    if pd.notna(num_val) and pd.notna(name_val) and str(name_val).strip() != "":
-                        student_set.add((str(num_val).strip(), str(name_val).strip()))
+                    num_val, name_val = safe_val(r.get(num_c, '')), safe_val(r.get(name_c, ''))
+                    if safe_notna(num_val) and safe_notna(name_val) and safe_str(name_val) != "":
+                        student_set.add((safe_str(num_val), safe_str(name_val)))
 
             sorted_students = sorted(list(student_set), key=lambda x: int(re.sub(r'\D', '', x[0])) if re.sub(r'\D', '', x[0]).isdigit() else 999)
 
