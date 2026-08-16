@@ -427,8 +427,9 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
    - [중요 규칙] 도서명(책 제목) 및 저자명(저자 이름)은 지침 2.1.4에 따라 독서활동 및 모든 영역에 기재할 수 있는 정당한 항목이므로 절대로 오탈자나 오류로 감지하지 마십시오.
 4. 특수문자 제한 위반:
    - 따옴표('"), 쉼표(,), 마침표(.), 느낌표(!), 물음표(?), 콜론(:), 괄호 외 불필요 특수기호(★, ◆, ~, @, #, $ 등)를 감지하십시오.
-5. 학생 입장 서술 지양 어미:
-   - ~파악함, ~이해함, ~다짐함, ~느낌, ~배움 등 학생 입장 어미를 감지하여 교사 관점 서술어(~활동지를 작성함, ~모습이 돋보임)로 전환 제안하십시오.
+5. 학생 입장 서술 지양 어미 (문장 종결 어미 한정):
+   - [엄격 규칙] 문장 맨 끝의 종결 어미가 '~느낌.', '~배움.', '~다짐함.' 처럼 교사의 관찰이 아닌 학생의 단순 독백 형태로 끝나는 경우에만 교사 관점 서술어(~모습이 돋보임, ~활동지를 작성함)로 전환 제안하십시오.
+   - [중요 예외] '느꼈던', '생각한', '깨달은', '고민한', '배운' 등 문장 내부의 수식어나 활동 맥락(예: '자신이 느꼈던 행복에 대해 발표함', '느꼈던 점을 바탕으로 보고서를 작성함')은 학생의 자연스러운 활동 과정 서술이므로 절대로 오류로 지적하거나 수정을 제안하지 마십시오.
 6. 수정 이유/근거 작성 시 지침 번호 제외:
    - [필수 규칙] 'reason(수정해야하는 이유나 근거)' 항목을 작성할 때는 개별 지침의 조항 번호(예: '지침 2.1.4', '지침 2.3', '제3조', '3.1.2' 등)를 절대로 적지 마십시오. 번호 없이 맞춤법, 띄어쓰기, 어미 교정, 불필요 특수문자 제거 등 구체적인 수정 이유만 명확히 설명하십시오.
 7. 창체 영역별 이수시간 기재 및 0시간 점검 규칙:
@@ -442,6 +443,18 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
    - [필수 규칙] 엑셀 페이지 변경 및 나눔 과정에서 쪼개졌다가 이어붙여진(병합된) 활동 내용 문장(예: 단어 중간 띄어쓰기 '상대 성', '분석 함', 어절 연결 띄어쓰기, 줄바꿈/페이지 결합 띄어쓰기 등)은 엑셀 데이터 원본 병합 특성이므로 절대로 띄어쓰기 오류로 지적하거나 검출하지 마십시오. 공백/띄어쓰기 변경 교정 항목은 모두 검출 결과에서 엄격히 예외 처리하여 오류로 잡지 마십시오.
 12. 동아리활동 (동아리명)(이수시간) 표기 디폴트 허용 규칙:
    - [필수 규칙] 창의적 체험활동의 '동아리활동' 서술문 시작 부분에 '(동아리명)(이수시간)' (예: '(시네마틱)(16시간)', '(과학탐구반)(17시간)') 형태로 동아리 명칭과 이수시간을 괄호로 표기하는 것은 나이스(NEIS) 기본 디폴트 기재 서식입니다. 괄호 내 동아리명이나 이수시간 표기를 절대로 지침 위반, 구체적 동아리명 사용 오탈자, 또는 삭제/수정 대상 오류로 감지하거나 지적하지 마십시오.
+13. 페이지 나눔/분할로 인한 문장 미완결 지적 금지:
+   - [필수 규칙] 엑셀 인쇄 페이지 분할 경계에서 문장이 도중에 끝난 것처럼 보이거나 끝 글자가 잘린 것처럼 보이는 현상(예: '문장이 종결되지 않음', '어미가 완성되지 않음', '도중에 끊김', '문맥을 보완해야 함', '따옴표로 끝남', '데이터 분할/병합' 등)은 엑셀 데이터의 페이지 분할에 의한 것이므로 절대로 오류로 지적하거나 검출하지 마십시오. 오직 문맥상 명백한 오탈자, 맞춤법, 금지어만 검출하십시오.
+14. 영문 약어 및 일반 명사 허용 규칙 (PPT, IT, AI 등):
+   - [필수 규칙] PPT, IT, AI, DNA, RNA, STEAM, SW, VR, AR, UCC, SNS, POPS, PD, TV, CEO, 도서명/저자명 영문 고유명사, 화폐/측정단위(kg, m, cm, %, pH, g 등)는 학교생활기록부 기재요령상 사용이 명시적으로 허용된 합법적 표기입니다. 절대로 영문/외국어 사용 오류로 검출하거나 한글 교정 대상으로 지적하지 마십시오.
+15. 날짜 및 기간 표기(2025.07.08. 등) 검출 금지 규칙:
+   - [필수 규칙] '2025.07.08.-2025.07.08.', '2026.07.09.~2026.07.14.', '5월 12일' 등 활동 날짜나 기간 표기는 지양 권고사항일 뿐 기재 금지 위반 오류나 오탈자가 아니므로, 절대로 오류로 검출하거나 삭제/수정을 제안하지 마십시오.
+16. 학기 표기('(1학기)', '(2학기)') 삭제/교정 지적 금지 규칙:
+   - [필수 규칙] '(1학기) 국어', '(2학기) 수학', '(1학기) 통합과학' 등 학기 정보가 포함된 과목 표기는 1/2학기 분리 기재 규정에 따른 정당한 표기입니다. 절대로 '(1학기)', '(2학기)'를 제거하고 과목명만 기재하라는 식의 교정 제안이나 오류 검출을 하지 마십시오.
+17. 단어 임의 분할 및 미완성 단어 환각(Hallucination) 지적 금지:
+   - [필수 규칙] '과학적 이해'를 '과학적 이'로 자르거나, '알고리즘'을 '알'로 자르는 등 문맥상 온전한 단어의 첫 글자를 임의로 분할하여 '단어가 중간에 잘려 있다'고 판단하고 단어를 보완/복구하라는 오류는 전형적인 AI의 과잉 추론(오탐)입니다. 텍스트 원본에 실제로 존재하는 명백한 맞춤법/오탈자/기재금지어만 지적하십시오.
+18. 세특 세부 항목 명칭 규칙:
+   - [필수 규칙] 세특(교과 세부능력 및 특기사항)의 세부 항목(sub_category)에는 반드시 구체적인 이수과목명(예: '국어', '문학', '수학Ⅰ' 등) 또는 개인별 세특인 경우 '개세특'만 표기해야 합니다. 절대로 '세부능력및특기사항'이라는 테이블 헤더 명칭을 세부 항목명으로 표기하지 마십시오.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【출력 형식 (JSON Schema)】
@@ -454,7 +467,7 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
       "student_name": "학생 이름",
       "category": "구분 (창체 / 세특 / 행발 중 하나)",
       "taken_grade": "이수학년 (예: 1학년, 2학년, 3학년)",
-      "sub_category": "세부 (창체는 '자율활동', '동아리활동', '진로활동' 중 1개만 명확히 표기, 세특은 과목명, 행특은 '행동특성')",
+      "sub_category": "세부 (창체는 '자율활동', '동아리활동', '진로활동' 중 1개만 명확히 표기, 세특은 구체적 과목명 또는 '개세특', 행특은 '행동특성')",
       "original_text": "오류가 발견된 수정 전 단어/문구",
       "suggested_text": "올바르게 교정된 수정 후 추천 문구",
       "reason": "수정해야 하는 명확한 이유나 근거 (맞춤법, 띄어쓰기, 문법, 브랜드명 대체 사유 등 구체적 이유를 작성하되 지침 조항 번호는 절대 기재하지 말 것)",
@@ -564,6 +577,11 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
         sugg = str(res_item.get('suggested_text', '')).strip()
         reason = str(res_item.get('reason', '')).strip()
 
+        # 세특 세부 컬럼 정규화: '세부능력및특기사항' -> '개세특'
+        if str(res_item.get('category', '')) == '세특':
+            if str(res_item.get('sub_category', '')).strip() in ['세부능력및특기사항', '세부능력 및 특기사항', '세특', '세부', 'nan', '']:
+                res_item['sub_category'] = '개세특'
+
         # 1. Skip single letter company initial (e.g. 'E사', 'A사', 'B사')
         if re.match(r'^[A-Za-z]사$', orig):
             continue
@@ -581,7 +599,7 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
         if orig in ['희망분야', '희망 분야']:
             continue
 
-        # 5. Skip spacing-only modifications and page-split concatenation spacing errors (사용자 지침: 페이지 변경과정에서 활동내용 이어붙일때 생기는 띄어쓰기 오류는 오류로 잡지마)
+        # 5. Skip spacing-only modifications and page-split concatenation spacing errors
         if orig.replace(" ", "").replace("\t", "").replace("\n", "") == sugg.replace(" ", "").replace("\t", "").replace("\n", ""):
             continue
 
@@ -589,7 +607,7 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
             if orig.replace(" ", "") == sugg.replace(" ", "") or '공백' in reason:
                 continue
 
-        # 6. Skip false errors on Dongari default format (동아리명)(이수시간) (사용자 지침: 동아리활동의 경우는 '(동아리명)(이수시간)' 표기가 디폴트야. 오류표시하면 안돼)
+        # 6. Skip false errors on Dongari default format (동아리명)(이수시간)
         sub_c = str(res_item.get('sub_category', '')).strip()
         if '동아리' in sub_c or re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', orig):
             if ('동아리' in reason or '괄호' in reason or '활동 명칭' in reason) and ('제거' in reason or '삭제' in reason or '표기' in reason or '명시' in reason or '수정' in reason):
@@ -597,7 +615,41 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
             if re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', orig):
                 continue
 
+        # 7. Skip false errors on page-split incomplete sentences / unfinished endings / fragment words (림., 고, 함, 시 등)
+        if any(kw in reason for kw in ['종결되지', '도중에 끊', '어미가 완성', '문맥을 보완', '내용을 보완', '미완성', '완결되지', '따옴표로 끝', '데이터 분할', '데이터 병합', '잘려 나간']):
+            continue
+
+        if orig in ['림.', '고', '함', '시', '활', '림', '알', '함.']:
+            continue
+
+        if len(orig) <= 2 and any(kw in reason for kw in ['잘려', '분할', '병합', '유실', '어미', '불완전', '삭제', '복구']):
+            continue
+
+        # 8. Skip allowed English acronyms (PPT, IT, AI, DNA, RNA, STEAM, SW, VR, AR, UCC, SNS, POPS, PD, TV, CEO 등)
+        allowed_english = ['PPT', 'IT', 'AI', 'DNA', 'RNA', 'STEAM', 'SW', 'VR', 'AR', 'UCC', 'SNS', 'POPS', 'PD', 'TV', 'CEO', 'MBTI', '앱', 'APP', 'PDF']
+        if orig.upper() in allowed_english or any(ae in orig.upper() for ae in ['PPT', 'IT', 'AI', 'SW', 'VR', 'AR', 'UCC', 'SNS', 'POPS', 'PD', 'TV', 'CEO']):
+            if any(kw in reason for kw in ['영문', '외국어', '알파벳', '한글', '대체', '사용 지양']):
+                continue
+
+        # 9. Skip date and period expressions (2025.07.08. 등 날짜 표기는 지양 사항일 뿐 오류 아님)
+        if '날짜' in reason or '기간' in reason or '일자' in reason or re.search(r'\d{4}\.\d{2}\.\d{2}', orig) or re.search(r'\d{1,2}월\s*\d{1,2}일', orig):
+            continue
+
+        # 10. Skip internal sentence emotion/reflection modifiers ('느꼈던', '생각한', '깨달은' 등)
+        if any(em in orig for em in ['느꼈던', '생각한', '깨달은', '고민한', '배운']) and any(kw in reason for kw in ['내면', '심리', '학생 입장', '서술 지양', '활동 중심']):
+            continue
+
+        # 13. Skip false error on '소셜벤처' being mistaken for ESG
+        if ('소셜벤처' in orig or '소셜 벤처' in orig) and any(kw in reason for kw in ['ESG', '약어', '대체', '지속가능']):
+            continue
+
+        # 14. Skip false errors on fragmented word hallucination ('과학적 이', '알', '함', '시' 등)
+        if any(kw in reason for kw in ['중간에 잘려', '단어가 잘려', '완성된 문구', '유실된 단어', '단어를 문맥에 맞게 복구', '잘린 어미', '어미를 보완']):
+            continue
+
         filtered_results.append(res_item)
+
+    return filtered_results
 
     return filtered_results
 
@@ -700,6 +752,62 @@ def check_jinro_hope_field(row_dict: dict, row_series: pd.Series = None) -> tupl
     return False, ""
 
 
+def is_meaningful_concatenation(base_token: str, append_token: str) -> bool:
+    """
+    페이지 나눔선을 기준으로 앞 페이지 끝 단어(음절)와 뒷 페이지 맨 앞 단어(음절)를 붙였을 때,
+    그 문장 내에서 유의미한 하나의 단어, 형태소(조사, 어미, 접사 결합) 또는 복합어가 되는지 판단합니다.
+    """
+    b = base_token.strip()
+    a = append_token.strip()
+    if not b or not a:
+        return False
+
+    # 1. 조사 / 어미 / 접미사 패턴 검사
+    # 예: 어머니 + 가, 포트폴리오 + 를, 추진 + 함., 수행 + 하였음, 바탕 + 으로, 알 + 림., 선정 + 고, 노력 + 함
+    josa_eomi_pattern = (
+        r'^(이|가|을|를|은|는|의|에|에서|에게|한테|과|와|으로|로|도|만|까지|부터|마저|조차|'
+        r'(이)?며|(이)?나|(이)?든|함|음|슴|했음|였음|하며|하여|하고|한|할|된|됨|되어|되고|되는|된다|'
+        r'적|성|율|률|력|화|스럽|스러운|스럽게|시키|시킴|시켰|시작|바탕|림|림\.|들|들이|들을|들의|들에게)'
+    )
+    if re.match(josa_eomi_pattern, a):
+        return True
+
+    # 2. 잘려나간 용언 어미 / 시제 / 연결어미 접미 (예: 하 + 였음 -> 하였음, 나타 + 냄 -> 나타냄, 이끌 + 어냄)
+    if re.match(r'^(였음|았음|었음|였으며|았으며|었으며|였고|았고|었고|여|아|어|면서|으면서|도록|고자|려고|으려고|는지|은지|ㄴ지|ㄹ수록|을수록|거나|든지|더미|거리|살이|냄|김)', a):
+        return True
+
+    # 3. 1~2음절 한자어/고유어 형태소 합성 검증 사전 (빈출 생기부 음절 결합)
+    morpheme_pairs = [
+        ('제', '작'), ('제', '출'), ('제', '시'), ('제', '공'), ('제', '안'),
+        ('설', '명'), ('설', '계'), ('설', '정'), ('설', '립'),
+        ('탐', '구'), ('탐', '색'), ('탐', '독'),
+        ('발', '표'), ('발', '견'), ('발', '전'), ('발', '달'),
+        ('분', '석'), ('분', '류'), ('분', '야'),
+        ('이', '해'), ('이', '유'), ('이', '론'), ('이', '용'),
+        ('능', '력'), ('역', '할'), ('역', '사'), ('역', '량'),
+        ('활', '용'), ('활', '동'), ('활', '성'),
+        ('해', '결'), ('해', '석'), ('해', '당'),
+        ('학', '습'), ('학', '교'), ('학', '문'),
+        ('수', '행'), ('수', '학'), ('수', '업'),
+        ('참', '여'), ('참', '고'), ('참', '가'),
+        ('토', '론'), ('토', '의'),
+        ('어머', '니'), ('알', '고리즘'), ('알', '게'), ('알', '림'),
+        ('정', '리'), ('실', '천'), ('모', '습'), ('과', '정'),
+        ('성', '취'), ('노', '력'), ('열', '정'), ('태', '도'),
+        ('시', '각'), ('시', '도'), ('시', '작'),
+        ('기', '반'), ('기', '초'), ('기', '능')
+    ]
+    for prefix, suffix in morpheme_pairs:
+        if b.endswith(prefix) and a.startswith(suffix):
+            return True
+
+    # 4. 앞 토큰이 1음절로 잘린 불완전 형태소인 경우 (예: '알' + '고리즘', '제' + '작을', '탐' + '구를')
+    if len(b) == 1 and re.match(r'^[가-힣]', b) and re.match(r'^[가-힣]', a):
+        return True
+
+    return False
+
+
 def smart_concatenate_text(base_text: str, append_text: str) -> str:
     base_clean = base_text.strip()
     append_clean = append_text.strip()
@@ -716,13 +824,28 @@ def smart_concatenate_text(base_text: str, append_text: str) -> str:
     if last_char in ['.', '!', '?', ':', ';', ',', ')', ']', '}', '"', "'"]:
         return f"{base_clean} {append_clean}"
 
-    # 2. 줄 바꿈으로 인해 단어가 잘린 경우 (어미, 조사, 어근 결합 시 띄어쓰기 없이 붙임)
-    # 예: '추진' + '함.', '실' + '천함.', '상대' + '성을 분석함.' -> '상대성을 분석함.'
-    if re.match(r'^(함|음|슴|했음|였음|하며|하여|하고|단|적|성|율|력|을|를|이|가|은|는|에|에서|의|과|와|으로|로|에게|한테|도|만|까지|부터|동|동에서는|활동)', append_clean):
+    # 2. 앞 페이지 마지막 단어와 뒷 페이지 첫 단어 추출
+    base_tokens = base_clean.split()
+    append_tokens = append_clean.split()
+
+    last_token = base_tokens[-1] if base_tokens else ""
+    first_token = append_tokens[0] if append_tokens else ""
+
+    # 따옴표나 백틱 등 특수문자 제거 후 순수 어절 비교
+    clean_last_token = re.sub(r'[\'\"`]', '', last_token)
+    clean_first_token = re.sub(r'[\'\"`]', '', first_token)
+
+    # 3. 페이지 나눔 기준 단어/음절 결합 유의미성 판단 (Meaningful Word Concatenation)
+    if is_meaningful_concatenation(clean_last_token, clean_first_token):
         return base_clean + append_clean
 
-    # 3. 완성된 단어와 단어 사이 연결 시 띄어쓰기 적용
-    # 예: '선정하고' + '노인화...' -> '선정하고 노인화...'
+    # 4. 앞 단어가 이미 조사가 붙었거나 완성된 용언 활용형인 경우 -> 띄어쓰기 유지
+    # 예: '발표하고' + '토론함' -> '발표하고 토론함', '보고서를' + '제출함' -> '보고서를 제출함'
+    complete_ending_pattern = r'(하고|하며|하여|했으나|있고|보이며|같음|으로|에서|에게|을|를|이|가|은|는|과|와)$'
+    if re.search(complete_ending_pattern, clean_last_token):
+        return f"{base_clean} {append_clean}"
+
+    # 5. 둘 다 한글 완성형 단어인 경우 기본 띄어쓰기 적용
     if re.match(r'[가-힣a-zA-Z0-9]', last_char) and re.match(r'[가-힣a-zA-Z0-9]', first_char):
         return f"{base_clean} {append_clean}"
 
@@ -1094,6 +1217,8 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                 active_area = area_val
 
             if num_str and name_str:
+                if active_num and num_str != active_num:
+                    active_grade = "1"  # 새로운 학생이 시작되면 기본 1학년으로 초기화
                 active_num = num_str
                 active_name = name_str
 
@@ -1103,11 +1228,17 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             if not target_num or not target_name:
                 continue
 
-            # 이전 학생의 레코드가 남아있는데 대상 학생(target_num/target_name)이 바뀐 경우 먼저 안전하게 플러시!
+            eff_grade = grade_val if (grade_val and grade_val.lower() != 'none') else (active_grade if active_grade else "3")
+            eff_grade_clean = eff_grade.replace("학년", "").replace(".0", "").strip()
+
+            # 이전 학생의 레코드가 남아있는데 대상 학생 또는 학년이 바뀐 경우 먼저 안전하게 플러시!
             if current_student_record is not None:
                 curr_n = safe_str(current_student_record.get(num_col))
                 curr_nm = safe_str(current_student_record.get(name_col))
-                if curr_n != target_num or curr_nm != target_name:
+                curr_g = safe_str(current_student_record.get(grade_col, '')).replace("학년", "").replace(".0", "").strip() if grade_col else ""
+                
+                # 학생이 바뀌었거나, 엑셀 상에 명시된 학년이 이전 레코드의 학년과 다른 경우 분리!
+                if (curr_n != target_num or curr_nm != target_name) or (grade_val and grade_val.replace("학년", "").strip() != curr_g):
                     if safe_str(current_student_record.get(content_col)):
                         refined_rows.append(current_student_record)
                     current_student_record = None
@@ -1122,7 +1253,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                         "student_id": target_num,
                         "student_name": target_name,
                         "category": "창체",
-                        "taken_grade": (grade_val + "학년") if grade_val else "3학년",
+                        "taken_grade": f"{eff_grade_clean}학년" if eff_grade_clean else "3학년",
                         "sub_category": "진로활동",
                         "original_text": "희망분야 (공란)",
                         "suggested_text": "학생 희망분야 기입",
@@ -1138,8 +1269,10 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             curr_num = current_student_record[num_col] if current_student_record else None
             curr_name = current_student_record[name_col] if current_student_record else None
             curr_area = current_student_record.get('sub_category', current_student_record.get(area_col, '')) if current_student_record else ''
+            curr_grade = safe_str(current_student_record.get(grade_col, '')).replace("학년", "").replace(".0", "").strip() if (current_student_record and grade_col) else ""
 
             is_same_student = (current_student_record is not None and curr_num == target_num and curr_name == target_name)
+            is_same_grade = (not grade_val or grade_val.replace("학년", "").strip() == curr_grade)
 
             if area_val and area_val.lower() != 'none' and area_val not in ['영역', '활동영역', '창의적체험활동', '구분', '세부']:
                 effective_area = area_val
@@ -1150,13 +1283,13 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 
             is_same_area = (not effective_area or not curr_area or effective_area == curr_area or effective_area in curr_area or curr_area in effective_area)
 
-            is_new_activity_start = (
-                re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', content_val) or 
-                re.match(r'^\([12]학기\)[가-힣·/]+:', content_val) or
-                re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*:', content_val)
-            )
+            is_new_activity_start = bool(re.match(
+                r'^(?:(?:\([12]학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]{1,20}\s*[:：]|\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\))',
+                content_val
+            ))
 
-            if is_same_student and is_same_area and not is_new_activity_start:
+            # 같은 학생 + 같은 학년 + 같은 영역일 때만 이전 레코드에 이어붙이기 수행
+            if is_same_student and is_same_grade and is_same_area and not is_new_activity_start:
                 prev_content = current_student_record[content_col]
                 merged_content = smart_concatenate_text(prev_content, content_val)
                 current_student_record[content_col] = merged_content
@@ -1181,7 +1314,6 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             new_record[content_col] = content_val
 
             eff_area = effective_area
-            eff_grade = grade_val if (grade_val and grade_val.lower() != 'none') else (active_grade if active_grade else "3")
 
             new_record['sub_category'] = eff_area
             if area_col:
@@ -1190,7 +1322,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                 new_record['영역'] = eff_area
             new_record['sub_category'] = eff_area
             if grade_col:
-                new_record[grade_col] = (eff_grade + "학년") if not str(eff_grade).endswith("학년") else eff_grade
+                new_record[grade_col] = f"{eff_grade_clean}학년" if eff_grade_clean else "3학년"
 
             # 시간(이수시간) 컬럼 보전 및 계승
             for h_col in ['시간', '시 간', '이수시간']:
@@ -1211,7 +1343,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
     if current_student_record is not None and str(current_student_record.get(content_col, '')).strip():
         refined_rows.append(current_student_record)
 
-    # Post-Processing Pass: Merge cut-off fragment rows for same student/area
+    # Post-Processing Pass: Merge cut-off fragment rows for same student + same grade
     final_refined_rows = []
     for r in refined_rows:
         if not final_refined_rows:
@@ -1220,6 +1352,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
         
         last_r = final_refined_rows[-1]
         same_st = (str(last_r[num_col]).strip() == str(r[num_col]).strip() and str(last_r[name_col]).strip() == str(r[name_col]).strip())
+        same_gd = (str(last_r.get(grade_col, '')).replace('학년', '').strip() == str(r.get(grade_col, '')).replace('학년', '').strip())
         last_sub = str(last_r.get('sub_category', last_r.get(area_col, '') if area_col else '')).strip()
         curr_sub = str(r.get('sub_category', r.get(area_col, '') if area_col else '')).strip()
         same_ar = (bool(last_sub and curr_sub) and (last_sub == curr_sub or curr_sub in last_sub or last_sub in curr_sub))
@@ -1227,14 +1360,13 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
         last_text = str(last_r[content_col]).strip()
         curr_text = str(r[content_col]).strip()
         
-        ends_with_punct = bool(re.search(r'[.!?)]$', last_text))
-        is_new_header = (
-            re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', curr_text) or 
-            re.match(r'^\([12]학기\)[가-힣·/]+:', curr_text) or
-            re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*:', curr_text)
-        )
+        is_new_header = bool(re.match(
+            r'^(?:(?:\([12]학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]{1,20}\s*[:：]|\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\))',
+            curr_text
+        ))
 
-        if same_st and same_ar and not is_new_header:
+        # 반드시 같은 학생 + 같은 학년일 때만 끊긴 문장 이어붙이기 허용!
+        if same_st and same_gd and same_ar and not is_new_header:
             merged = smart_concatenate_text(last_text, curr_text)
             last_r[content_col] = merged
             last_r['_merged_count'] += 1 + r.get('_merged_count', 0)
@@ -1277,8 +1409,16 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
     content_col = col_map['content_col']
     extra_cols = col_map['extra_cols']
 
-    pattern = r'(?:^|\n)\s*(((?:\([12]\s*학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]+))\s*[:：]'
+    # Improved regex to find subject headings (including multi-word subjects like '화법과 작문', '윤리와 사상')
+    # Match starts at string start, newline, after sentence ending punctuation (. ! ?), or after closing paren )
+    pattern = r'(?:^|\n|[.!?]\s*|\)\s*)\s*(((?:\([12]\s*학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]{1,20}))\s*[:：]'
     
+    ignore_hdr_keywords = [
+        '주제', '탐구주제', '탐구 주제', '결과', '활동결과', '활동 결과', 
+        '느낀점', '느낀 점', '소감', '의견', '참고문헌', '참고 문헌', '내용', '활동내용',
+        '일시', '장소', '대상', '목표', '방법', '동기', '탐구 동기', '탐구동기', '역할', '분야'
+    ]
+
     unfolded_rows = []
 
     for _, row in df.iterrows():
@@ -1300,105 +1440,81 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
 
             row_subj = safe_str(row.get('과목명', row.get('과목', '')))
             clean_row_subj = clean_subject_name(row_subj)
-            if not clean_row_subj or clean_row_subj.lower() == 'nan':
-                clean_row_subj = '세부능력및특기사항'
-
-            ignore_hdr_keywords = [
-                '주제', '탐구주제', '탐구 주제', '결과', '활동결과', '활동 결과', 
-                '느낀점', '느낀 점', '소감', '의견', '참고문헌', '참고 문헌', '내용', '활동내용'
-            ]
+            if not clean_row_subj or clean_row_subj.lower() in ['nan', 'none', ''] or clean_row_subj in ['세부능력및특기사항', '세부능력 및 특기사항', '세특', '세부']:
+                clean_row_subj = '개세특'
 
             matches = []
             for m in re.finditer(pattern, text_norm):
                 full_hdr = m.group(1).strip()
-                clean_candidate = clean_subject_name(full_hdr)
-                byte_len = len(full_hdr.encode('euc-kr', errors='ignore'))
+                
+                # Clean heading & extract semester tag
+                sem_m = re.search(r'\(([12]\s*학기)\)', full_hdr)
+                if sem_m:
+                    sem_tag = f"({sem_m.group(1).replace(' ', '')})"
+                    clean_cand = full_hdr[sem_m.end():].strip()
+                    clean_cand = re.sub(r'^[^\w가-힣]+', '', clean_cand).strip()
+                else:
+                    sem_tag = ""
+                    clean_cand = clean_subject_name(full_hdr)
+
+                byte_len = len(clean_cand.encode('euc-kr', errors='ignore'))
                 
                 # Exclude common body colon phrases
-                if clean_candidate in ignore_hdr_keywords or re.match(r'^\d+[\.\)]\s*', clean_candidate):
+                if clean_cand in ignore_hdr_keywords or re.match(r'^\d+[\.\)]\s*', clean_cand):
                     continue
 
-                if byte_len <= 30 and len(full_hdr) >= 1:
+                if byte_len <= 30 and len(clean_cand) >= 1:
                     matches.append({
-                        'start_full': m.start(),
+                        'start_full': m.start(1),
                         'start_hdr': m.start(1),
                         'end_hdr': m.end(),
-                        'hdr_text': full_hdr
+                        'hdr_text': full_hdr,
+                        'sem_tag': sem_tag,
+                        'clean_subj': clean_cand
                     })
 
             if not matches:
                 item = base_info.copy()
-                item['과목명'] = clean_row_subj
+                item['과목명'] = clean_row_subj if clean_row_subj not in ['세부능력및특기사항', '세부능력 및 특기사항', '세특', '세부', 'nan'] else '개세특'
                 item['내용'] = text_norm.replace('\n', ' ').strip()
                 item['글자수'] = len(item['내용'])
                 unfolded_rows.append(item)
                 continue
 
-            subj_snippets = []
+            # If there is content before the first matched subject heading
+            first_m = matches[0]
+            if first_m['start_full'] > 0:
+                pre_content = text_norm[:first_m['start_full']].strip()
+                if len(pre_content) > 10:
+                    item = base_info.copy()
+                    item['과목명'] = clean_row_subj if clean_row_subj not in ['세부능력및특기사항', '세부능력 및 특기사항', '세특', '세부', 'nan'] else '개세특'
+                    item['내용'] = pre_content.replace('\n', ' ').strip()
+                    item['글자수'] = len(item['내용'])
+                    unfolded_rows.append(item)
+
             for i in range(len(matches)):
                 m_curr = matches[i]
                 start_content = m_curr['end_hdr']
                 end_content = matches[i+1]['start_full'] if i + 1 < len(matches) else len(text_norm)
                 
                 snippet = text_norm[start_content:end_content].strip()
-                raw_hdr = m_curr['hdr_text']
+                sem_tag = m_curr['sem_tag']
+                clean_s = m_curr['clean_subj'] if m_curr['clean_subj'] else clean_row_subj
+                if clean_s in ['세부능력및특기사항', '세부능력 및 특기사항', '세특', '세부', 'nan']:
+                    clean_s = '개세특'
                 
-                sem_match = re.search(r'\(([12]\s*학기)\)', raw_hdr)
-                sem_tag = f"({sem_match.group(1).replace(' ', '')})" if sem_match else ""
+                # 사용자 지침: 1학기와 2학기는 별개의 독립 과목으로 분리 인식 (예: '(1학기) 국어', '(2학기) 국어')
+                if sem_tag:
+                    full_subj_name = f"{sem_tag} {clean_s}"
+                else:
+                    full_subj_name = clean_s
                 
-                clean_subj = clean_subject_name(raw_hdr)
-                if not clean_subj:
-                    clean_subj = clean_row_subj
-                
-                subj_snippets.append({
-                    'subject': clean_subj,
-                    'sem_tag': sem_tag,
-                    'content': snippet,
-                    'raw_hdr': raw_hdr
-                })
-
-            # 엔터 2번(\n\n)으로 나뉜 문단 중 과목명이 없는 마지막 문단은 개세특 처리
-            double_enter_blocks = re.split(r'\n\s*\n', text_norm)
-            if len(double_enter_blocks) > 1:
-                last_block = double_enter_blocks[-1].strip()
-                if last_block and not re.match(r'^(?:\([12]\s*학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]{1,20}\s*[:：]', last_block):
-                    if subj_snippets:
-                        last_snip_content = subj_snippets[-1]['content']
-                        if last_block in last_snip_content:
-                            pos = last_snip_content.rfind(last_block)
-                            if pos >= 0:
-                                subj_snippets[-1]['content'] = last_snip_content[:pos].strip()
-                            subj_snippets.append({
-                                'subject': '개세특',
-                                'sem_tag': '',
-                                'content': last_block,
-                                'raw_hdr': '개세특'
-                            })
-
-            grouped = {}
-            for item_snip in subj_snippets:
-                s_name = item_snip['subject']
-                if s_name not in grouped:
-                    grouped[s_name] = []
-                grouped[s_name].append(item_snip)
-
-            for s_name, item_list in grouped.items():
-                combined_parts = []
-                for snip in item_list:
-                    text_part = snip['content'].replace('\n', ' ').strip()
-                    sem_tag = snip['sem_tag']
-                    if text_part:
-                        if sem_tag and not text_part.startswith(sem_tag):
-                            combined_parts.append(f"{sem_tag} {text_part}")
-                        else:
-                            combined_parts.append(text_part)
-                
-                full_combined = " ".join(combined_parts).strip()
-                if full_combined:
+                clean_text = snippet.replace('\n', ' ').strip()
+                if clean_text:
                     item = base_info.copy()
-                    item['과목명'] = s_name
-                    item['내용'] = full_combined
-                    item['글자수'] = len(full_combined)
+                    item['과목명'] = full_subj_name
+                    item['내용'] = clean_text
+                    item['글자수'] = len(clean_text)
                     unfolded_rows.append(item)
 
         except Exception as e:
@@ -2187,17 +2303,6 @@ def main():
 
         with st.expander("엑셀 파일 업로드", expanded=True):
             # Custom dropzone label
-            st.markdown('''
-            <div style="background-color: #F8FAFC; border: 2px dashed #94A3B8; border-radius: 12px;
-                        padding: 1rem; text-align: center; margin-bottom: -0.5rem;">
-                <div style="font-size: 0.9rem; font-weight: 700; color: #1E293B; line-height: 1.6;">
-                    여기에 생기부 엑셀 파일 드롭
-                </div>
-                <div style="font-size: 0.78rem; font-weight: 500; color: #64748B; margin-top: 0.2rem;">
-                    (또는 아래에서 파일 선택)
-                </div>
-            </div>
-            ''', unsafe_allow_html=True)
             uploader_key = f"auto_file_uploader_{st.session_state.get('uploader_key_version', 0)}"
             uploaded_files = st.file_uploader(
                 "생기부 엑셀 파일 (.xlsx, .xls)",
@@ -2207,43 +2312,66 @@ def main():
                 label_visibility="collapsed"
             )
 
-            # Inject CSS into parent document to hide Upload button (bypasses Emotion CSS)
+            # Inject CSS into parent document to turn the REAL uploader into a pure dropzone
             stc.html("""
             <script>
             (function() {
                 var doc = window.parent.document;
-                // Check if our style is already injected
-                if (doc.getElementById('hide-upload-btn-style')) return;
+                var oldStyle = doc.getElementById('hide-upload-btn-style');
+                if (oldStyle) oldStyle.remove();
+                
                 var style = doc.createElement('style');
                 style.id = 'hide-upload-btn-style';
                 style.textContent = `
-                    /* Hide ALL Upload buttons inside file uploaders */
+                    /* Real Dropzone Box Styling */
+                    section[role="presentation"],
+                    [data-testid="stFileUploaderDropzone"] {
+                        background-color: #F8FAFC !important;
+                        border: 2px dashed #94A3B8 !important;
+                        border-radius: 12px !important;
+                        padding: 1.4rem 1rem !important;
+                        display: flex !important;
+                        flex-direction: column !important;
+                        align-items: center !important;
+                        justify-content: center !important;
+                        text-align: center !important;
+                        cursor: pointer !important;
+                        min-height: 85px !important;
+                        transition: all 0.2s ease !important;
+                    }
+
+                    section[role="presentation"]:hover,
+                    [data-testid="stFileUploaderDropzone"]:hover {
+                        border-color: #2563EB !important;
+                        background-color: #EFF6FF !important;
+                    }
+
+                    /* Hide ALL internal Upload buttons and small helper text */
                     section[role="presentation"] button,
                     section[role="presentation"] > span,
+                    section[role="presentation"] small,
                     [data-testid="stFileUploaderDropzone"] button,
-                    [data-testid="stFileUploader"] button {
+                    [data-testid="stFileUploaderDropzone"] small {
                         display: none !important;
                         visibility: hidden !important;
                         height: 0 !important;
                         width: 0 !important;
                         overflow: hidden !important;
                         position: absolute !important;
-                        clip: rect(0,0,0,0) !important;
                     }
-                    /* Hide entire dropzone shell (empty box after button removal) */
-                    section[role="presentation"] {
-                        border: none !important;
-                        background: transparent !important;
-                        padding: 0 !important;
-                        margin: 0 !important;
-                        min-height: 0 !important;
-                        height: 0 !important;
-                        overflow: hidden !important;
-                    }
-                    /* Also hide "Drag and drop file here" and "Limit 200MB per file" text */
-                    section[role="presentation"] small,
-                    [data-testid="stFileUploaderDropzone"] small {
-                        display: none !important;
+
+                    /* Clean Dropzone Label Text */
+                    section[role="presentation"]::after,
+                    [data-testid="stFileUploaderDropzone"]::after {
+                        content: "여기에 생기부 엑셀 파일 드롭\\A(또는 클릭하여 파일 선택)" !important;
+                        white-space: pre-wrap !important;
+                        font-size: 0.9rem !important;
+                        font-weight: 700 !important;
+                        color: #1E293B !important;
+                        line-height: 1.6 !important;
+                        text-align: center !important;
+                        display: block !important;
+                        pointer-events: none !important;
                     }
                 `;
                 doc.head.appendChild(style);
@@ -2420,24 +2548,45 @@ def main():
                                 st_id = str(item.get("student_id", item.get("학번", "00000"))).strip()
 
                                 matched_payload = None
-                                if orig_text_item:
+                                # 1. Exact match with student_id + original_text in text_content
+                                if orig_text_item and st_id:
                                     matched_payload = next((p for p in records_payload if p["학번"] == st_id and orig_text_item in p["기록텍스트"]), None)
-                                if not matched_payload and sub_cat_item and sub_cat_item not in ["창체", "창의적체험활동"]:
+                                
+                                # 2. Match with student_name + original_text in text_content
+                                if not matched_payload and orig_text_item and item.get("student_name"):
+                                    matched_payload = next((p for p in records_payload if p["이름"] == item.get("student_name") and orig_text_item in p["기록텍스트"]), None)
+
+                                # 3. Match with student_id + sub_category
+                                if not matched_payload and sub_cat_item and sub_cat_item not in ["창체", "창의적체험활동", "세특", "세부능력및특기사항"]:
                                     matched_payload = next((p for p in records_payload if p["학번"] == st_id and p["세부"] == sub_cat_item), None)
+                                
+                                # 4. Match with original_text across all records
                                 if not matched_payload and orig_text_item:
                                     matched_payload = next((p for p in records_payload if orig_text_item in p["기록텍스트"]), None)
 
-                                if matched_payload and matched_payload.get("세부"):
-                                    sub_cat_item = matched_payload["세부"]
-                                elif cat_item in ["창체", "창의적체험활동"] and (not sub_cat_item or sub_cat_item in ["창체", "창의적체험활동"]):
-                                    sub_cat_item = get_changche_area_from_cell(sub_cat_item, orig_text_item)
+                                # 엑셀 원본 ground-truth 메타데이터로 100% 강제 동기화 (LLM 학년/영역 오추론 방지)
+                                if matched_payload:
+                                    true_grade = matched_payload.get("이수학년", item.get("taken_grade", "1학년"))
+                                    true_name = matched_payload.get("이름", item.get("student_name", ""))
+                                    true_cat = matched_payload.get("구분", cat_item)
+                                    true_sub = matched_payload.get("세부", sub_cat_item)
+                                else:
+                                    true_grade = item.get("taken_grade", item.get("이수학년", "1학년"))
+                                    true_name = item.get("student_name", item.get("이름", ""))
+                                    true_cat = cat_item
+                                    true_sub = sub_cat_item
+
+                                if true_cat in ["창체", "창의적체험활동"] and (not true_sub or true_sub in ["창체", "창의적체험활동"]):
+                                    true_sub = get_changche_area_from_cell(true_sub, orig_text_item)
+                                elif true_cat == "세특" and true_sub in ["세부능력및특기사항", "세부능력 및 특기사항", "세특", "세부", "nan", ""]:
+                                    true_sub = "개세특"
 
                                 audit_rows.append({
                                     "학번": st_id,
-                                    "이름": item.get("student_name", item.get("이름", "")),
-                                    "구분": cat_item,
-                                    "이수학년": item.get("taken_grade", item.get("이수학년", "1학년")),
-                                    "세부": sub_cat_item,
+                                    "이름": true_name,
+                                    "구분": true_cat,
+                                    "이수학년": true_grade,
+                                    "세부": true_sub,
                                     "수정전": orig_text_item,
                                     "수정 후": item.get("suggested_text", item.get("수정 후", "")),
                                     "수정해야하는 이유나 근거": item.get("reason", item.get("수정해야하는 이유나 근거", "")),
