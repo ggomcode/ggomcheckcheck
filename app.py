@@ -363,18 +363,46 @@ st.markdown("""
 # ==============================================================================
 # 1. 지침 MD 파일 동적 로더
 # ==============================================================================
-@st.cache_data
-def load_guideline_content(md_file_path: str = "data/학교생활기록부_기재_및_검증_지침.md") -> str:
+def load_guideline_content() -> str:
     """
-    data/학교생활기록부_기재_및_검증_지침.md 지침 파일 전문을 읽어옵니다.
+    data/ 폴더 내의 기본 지침 파일 및 사용자가 직접 수정한 '세부 규칙.md' 파일을 실시간으로 읽어옵니다.
+    분석 실행 시 항상 최신 파일 내용을 반영합니다.
     """
-    if os.path.exists(md_file_path):
-        try:
-            with open(md_file_path, "r", encoding="utf-8") as f:
-                return f.read()
-        except Exception as e:
-            st.warning(f"지침 md 파일 로드 경고: {e}")
-    return ""
+    contents = []
+    
+    # 1. 기본 기재 및 검증 지침 파일
+    base_candidates = [
+        "data/학교생활기록부_기재_및_검증_지침.md", 
+        "data/학교생활기록부_기재_및_검증_지침.MD",
+        "data/기재요령.md"
+    ]
+    for bp in base_candidates:
+        if os.path.exists(bp):
+            try:
+                with open(bp, "r", encoding="utf-8") as f:
+                    contents.append(f.read().strip())
+                break
+            except Exception as e:
+                pass
+
+    # 2. 사용자 세부 규칙 파일 (data/세부 규칙.md 등)
+    detail_candidates = [
+        "data/세부 규칙.md",
+        "data/세부_규칙.md",
+        "data/세부규칙.md"
+    ]
+    for dp in detail_candidates:
+        if os.path.exists(dp):
+            try:
+                with open(dp, "r", encoding="utf-8") as f:
+                    detail_text = f.read().strip()
+                    if detail_text:
+                        contents.append(f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n【사용자 정의 세부 규칙 (최우선 적용 지침)】\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{detail_text}")
+                break
+            except Exception as e:
+                pass
+
+    return "\n\n".join(contents)
 
 
 # ==============================================================================
@@ -427,34 +455,50 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
    - [중요 규칙] 도서명(책 제목) 및 저자명(저자 이름)은 지침 2.1.4에 따라 독서활동 및 모든 영역에 기재할 수 있는 정당한 항목이므로 절대로 오탈자나 오류로 감지하지 마십시오.
 4. 특수문자 제한 위반:
    - 따옴표('"), 쉼표(,), 마침표(.), 느낌표(!), 물음표(?), 콜론(:), 괄호 외 불필요 특수기호(★, ◆, ~, @, #, $ 등)를 감지하십시오.
-5. 학생 입장 서술 지양 어미 (문장 종결 어미 한정):
-   - [엄격 규칙] 문장 맨 끝의 종결 어미가 '~느낌.', '~배움.', '~다짐함.' 처럼 교사의 관찰이 아닌 학생의 단순 독백 형태로 끝나는 경우에만 교사 관점 서술어(~모습이 돋보임, ~활동지를 작성함)로 전환 제안하십시오.
+5. 학생 입장 서술 지양 어미 및 주관적 표현 ('검토 권장' 완화 규칙):
+   - [엄격 규칙] 문장 맨 끝의 종결 어미가 '~느낌.', '~배움.', '~다짐함.' 처럼 교사의 관찰이 아닌 학생의 단순 독백 형태로 끝나는 경우, 또는 학생의 주관적 감상/감정/흥미 표현, 교사의 주관적 감정 표현은 '수정 필수'나 '수정 권장'이 아닌 **'검토 권장'**으로 완화하여 제안하십시오.
    - [중요 예외] '느꼈던', '생각한', '깨달은', '고민한', '배운' 등 문장 내부의 수식어나 활동 맥락(예: '자신이 느꼈던 행복에 대해 발표함', '느꼈던 점을 바탕으로 보고서를 작성함')은 학생의 자연스러운 활동 과정 서술이므로 절대로 오류로 지적하거나 수정을 제안하지 마십시오.
 6. 수정 이유/근거 작성 시 지침 번호 제외:
    - [필수 규칙] 'reason(수정해야하는 이유나 근거)' 항목을 작성할 때는 개별 지침의 조항 번호(예: '지침 2.1.4', '지침 2.3', '제3조', '3.1.2' 등)를 절대로 적지 마십시오. 번호 없이 맞춤법, 띄어쓰기, 어미 교정, 불필요 특수문자 제거 등 구체적인 수정 이유만 명확히 설명하십시오.
 7. 창체 영역별 이수시간 기재 및 0시간 점검 규칙:
-   - [엄격 규칙] 창체 영역별 이수시간 검증은 오직 이수시간이 '0시간'인 경우(또는 텍스트 내 '(0시간)'이 기재된 경우)에만 '수정 권장'으로 검출하십시오.
+   - [엄격 규칙] 창체 영역별 이수시간 검증은 오직 일반 학생의 이수시간이 '0시간'인 경우(또는 텍스트 내 '(0시간)'이 기재된 경우)에만 '수정 필수'로 검출하십시오.
+   - [중요 예외] '순회교육', '위탁학생', '위탁교육', '병원학교', '원격수업' 등 정당한 특수/위탁 교육 사유로 서술문('순회교육으로 활동 내용이 없음.', '위탁기관의 기록을 따름' 등)이 기재된 학생은 0시간이 합법적인 기본값이므로 절대로 0시간 오류로 검출하거나 지적하지 마십시오.
    - [필수 규칙] 16시간, 17시간 등 정상 이수시간이나 이수시간 빈칸/미기재에 대해서는 절대로 이수시간 관련 검출 메시지나 오류를 내보내지 마십시오.
 8. 창체 세부 영역 단일화 및 명확화:
    - [필수 규칙] 창의적 체험활동의 'sub_category(세부)' 항목은 기록 내용을 분석하여 반드시 '자율활동', '동아리활동', '진로활동' 중 명확하게 1개 영역만 지정해야 합니다. 절대로 '자율/동아리/진로'처럼 여러 개를 슬래시로 묶어서 표기하지 마십시오.
 9. 기업/브랜드 알파벳 1글자 블라인드 표기 허용 규칙:
    - [중요 규칙] 'E사', 'A사', 'B사', 'K사'처럼 기업명이나 상호명을 블라인드/익명화하기 위한 '알파벳 1글자+사(社)' 형태의 표기(예: 'E사', 'A사')는 정당한 익명화 기재 방식입니다. 1글자짜리 정식회사명이나 브랜드는 존재하지 않으므로 절대로 '상호명/기업 이니셜 사용' 오류로 감지하거나 지적하지 마십시오.
-11. 엑셀 페이지 나눔/변경 결합 과정의 띄어쓰기 예외 규칙:
-   - [필수 규칙] 엑셀 페이지 변경 및 나눔 과정에서 쪼개졌다가 이어붙여진(병합된) 활동 내용 문장(예: 단어 중간 띄어쓰기 '상대 성', '분석 함', 어절 연결 띄어쓰기, 줄바꿈/페이지 결합 띄어쓰기 등)은 엑셀 데이터 원본 병합 특성이므로 절대로 띄어쓰기 오류로 지적하거나 검출하지 마십시오. 공백/띄어쓰기 변경 교정 항목은 모두 검출 결과에서 엄격히 예외 처리하여 오류로 잡지 마십시오.
-12. 동아리활동 (동아리명)(이수시간) 표기 디폴트 허용 규칙:
-   - [필수 규칙] 창의적 체험활동의 '동아리활동' 서술문 시작 부분에 '(동아리명)(이수시간)' (예: '(시네마틱)(16시간)', '(과학탐구반)(17시간)') 형태로 동아리 명칭과 이수시간을 괄호로 표기하는 것은 나이스(NEIS) 기본 디폴트 기재 서식입니다. 괄호 내 동아리명이나 이수시간 표기를 절대로 지침 위반, 구체적 동아리명 사용 오탈자, 또는 삭제/수정 대상 오류로 감지하거나 지적하지 마십시오.
-13. 페이지 나눔/분할로 인한 문장 미완결 지적 금지:
-   - [필수 규칙] 엑셀 인쇄 페이지 분할 경계에서 문장이 도중에 끝난 것처럼 보이거나 끝 글자가 잘린 것처럼 보이는 현상(예: '문장이 종결되지 않음', '어미가 완성되지 않음', '도중에 끊김', '문맥을 보완해야 함', '따옴표로 끝남', '데이터 분할/병합' 등)은 엑셀 데이터의 페이지 분할에 의한 것이므로 절대로 오류로 지적하거나 검출하지 마십시오. 오직 문맥상 명백한 오탈자, 맞춤법, 금지어만 검출하십시오.
+11. 엑셀 페이지 나눔/결합 과정의 분할 음절 보존 및 띄어쓰기 예외 규칙:
+   - [절대 금지] 엑셀 페이지 분할 경계에서 단어나 문장이 쪼개져 보이는 경우(예: 앞선 문장에서 이어진 '론 학생임을', '력적', '함' 등), **그 어떤 경우에도 원문의 글자나 음절을 '불필요한 음절/글자'라며 임의로 삭제/제거해서는 절대로 안 됩니다.** 그 어떤 생기부 내용도 임의 삭제 제안을 하지 마십시오.
+   - [필수 규칙] 문장이 분할되었다고 판단되면 앞뒤 문맥을 이어서 분석하되, 분할/결합 연결부의 띄어쓰기 오류(예: '상대 성', '분석 함' 등)는 엑셀 데이터의 결합 특성이므로 절대로 오류로 내보내지 마십시오. 오직 문맥상 명백한 맞춤법(철자) 오류, 표준어 규정 위반, 기재금지어만 검출하십시오.
+12. 동아리 명칭 및 활동 서술 100% 허용 규칙:
+   - [필수 규칙] 동아리 명칭은 특정 회사나 상품 브랜드, 방송 프로그램 이름, 고유명사나 상호, 행사 이름 등을 차용했더라도 100% 허용됩니다.
+   - [필수 규칙] 창의적 체험활동의 '동아리활동' 서술문에 '(동아리명)(이수시간)' (예: '(시네마틱)(16시간)', '(과학탐구반)(17시간)') 형태로 동아리 명칭과 이수시간을 괄호로 표기하는 것은 나이스(NEIS) 기본 디폴트 기재 서식입니다. 절대로 오류로 감지하거나 지적하지 마십시오.
+13. 페이지 나눔/분할로 인한 문장 미완결/잘림에 대한 단어 보완 및 문장 완성 절대 금지:
+   - [절대 금지] 문장이 마무리되지 않았거나 단어가 중간에 끊긴 것처럼 보이는 경우(예: '나', '아감.', '그', '함.', '있는' 등), **오류를 표기하기 전에 반드시 분할된 페이지에 해당되는 부분인지 먼저 판단**하십시오.
+   - [필수 규칙] 분할된 경우에는 **반드시 분할된 앞뒤 문맥을 머릿속으로 온전히 연결한 후에 판단**해야 하며, '문장이 중간에 잘려 있어 단어를 보완하여 완성해야 함', '앞선 문장에서 잘린 글자와 결합하여 수정함', '의미가 연결되도록 수정함' 같은 단어 지어내기(환각)나 문장 완성 제안을 절대로 내보내지 마십시오.
+   - [필수 규칙] 오직 연결된 온전한 문맥상에서 발견되는 명백한 맞춤법(철자 오탈자), 표준어 규정 위반, 기재금지어만 검출하십시오.
 14. 영문 약어 및 일반 명사 허용 규칙 (PPT, IT, AI 등):
    - [필수 규칙] PPT, IT, AI, DNA, RNA, STEAM, SW, VR, AR, UCC, SNS, POPS, PD, TV, CEO, 도서명/저자명 영문 고유명사, 화폐/측정단위(kg, m, cm, %, pH, g 등)는 학교생활기록부 기재요령상 사용이 명시적으로 허용된 합법적 표기입니다. 절대로 영문/외국어 사용 오류로 검출하거나 한글 교정 대상으로 지적하지 마십시오.
 15. 날짜 및 기간 표기(2025.07.08. 등) 검출 금지 규칙:
    - [필수 규칙] '2025.07.08.-2025.07.08.', '2026.07.09.~2026.07.14.', '5월 12일' 등 활동 날짜나 기간 표기는 지양 권고사항일 뿐 기재 금지 위반 오류나 오탈자가 아니므로, 절대로 오류로 검출하거나 삭제/수정을 제안하지 마십시오.
-16. 학기 표기('(1학기)', '(2학기)') 삭제/교정 지적 금지 규칙:
-   - [필수 규칙] '(1학기) 국어', '(2학기) 수학', '(1학기) 통합과학' 등 학기 정보가 포함된 과목 표기는 1/2학기 분리 기재 규정에 따른 정당한 표기입니다. 절대로 '(1학기)', '(2학기)'를 제거하고 과목명만 기재하라는 식의 교정 제안이나 오류 검출을 하지 마십시오.
+16. 학기 표기('(1학기)', '(2학기)') 삭제/교정 지적 절대 금지 규칙:
+   - [절대 금지] '(1학기) 국어', '(2학기) 체육', '(1학기) 통합과학' 등 과목명 앞에 붙은 학기 정보('(1학기)', '(2학기)')는 나이스(NEIS) 1/2학기 분리 이수 표준 서식입니다.
+   - [필수 규칙] 절대로 '(1학기)', '(2학기)'를 제거하고 과목명만 기재하라는 식의 교정 제안이나 오류 검출을 내보내지 마십시오. '(1학기) 과목명'은 그 자체로 100% 온전한 정상 과목명입니다.
 17. 단어 임의 분할 및 미완성 단어 환각(Hallucination) 지적 금지:
    - [필수 규칙] '과학적 이해'를 '과학적 이'로 자르거나, '알고리즘'을 '알'로 자르는 등 문맥상 온전한 단어의 첫 글자를 임의로 분할하여 '단어가 중간에 잘려 있다'고 판단하고 단어를 보완/복구하라는 오류는 전형적인 AI의 과잉 추론(오탐)입니다. 텍스트 원본에 실제로 존재하는 명백한 맞춤법/오탈자/기재금지어만 지적하십시오.
 18. 세특 세부 항목 명칭 규칙:
-   - [필수 규칙] 세특(교과 세부능력 및 특기사항)의 세부 항목(sub_category)에는 반드시 구체적인 이수과목명(예: '국어', '문학', '수학Ⅰ' 등) 또는 개인별 세특인 경우 '개세특'만 표기해야 합니다. 절대로 '세부능력및특기사항'이라는 테이블 헤더 명칭을 세부 항목명으로 표기하지 마십시오.
+   - [필수 규칙] 세특(교과 세부능력 및 특기사항)의 세부 항목(sub_category)에는 구체적인 이수과목명(예: '(1학기) 국어', '문학', '수학Ⅰ' 등) 또는 개인별 세특인 경우 '개세특'만 표기해야 합니다. 절대로 '세부능력및특기사항'이라는 테이블 헤더 명칭을 세부 항목명으로 표기하지 마십시오.
+19. 추가 허용 용어 목록 (절대 오류로 지적하지 말 것):
+   - 1인 1역, 1인1역
+   - 학교스포츠클럽, 스포츠 클럽, 교내리그, 교내 리그, 리그전, 방과후학교스포츠클럽, 헬스, 트레이닝, 보디빌더, 이단 뛰기, 피구, 축구, 배구, 탁구 등 체육 종목명
+   - 특정 학과/학문명 (예: ~과, ~학과, ~학부)
+   - 한글 문장 및 영문 문장 내 단어 사이 중간점(·)
+   - 수능, 대학수학능력시험, 대입수능, 스태그플레이션
+   - 공장, 시설, 롤러코스터
+   - 앱, 어플, 화상 공유, 바이브 코딩, 네트워크, 데이터 보안, 인공지능, 인터넷 포털 사이트, 아두이노, ESP32, 라즈베리파이, 디자인 씽킹
+   - 수리과학한마당, 루덴스 아트 페스티벌, 우문현답, 도전 골든벨, 체육 한마당, 체육한마당, 경제 골든 벨 등 구체적인 학교명이 없고 '행사'라는 말이 명기되지 않은 유사 학교 행사 명칭
+   - 특정 병원의 고유명이 아닌 병원의 종류/과목 (예: 중독 전문병원, 정형외과 등)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【출력 형식 (JSON Schema)】
@@ -471,7 +515,7 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
       "original_text": "오류가 발견된 수정 전 단어/문구",
       "suggested_text": "올바르게 교정된 수정 후 추천 문구",
       "reason": "수정해야 하는 명확한 이유나 근거 (맞춤법, 띄어쓰기, 문법, 브랜드명 대체 사유 등 구체적 이유를 작성하되 지침 조항 번호는 절대 기재하지 말 것)",
-      "severity": "수정 필수 또는 수정 권장"
+      "severity": "수정 필수, 수정 권장, 검토 권장 중 하나 (명백한 지침 위반/오탈자는 '수정 필수', 권고사항은 '수정 권장', 학생 관점/어미 등은 '검토 권장')"
     }}
   ]
 }}
@@ -1258,7 +1302,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                         "original_text": "희망분야 (공란)",
                         "suggested_text": "학생 희망분야 기입",
                         "reason": "진로활동 희망분야가 공란으로 기재되어 있으니 학생의 희망분야를 확인하여 기입하십시오.",
-                        "severity": "수정 권장"
+                        "severity": "수정 필수"
                     })
                 # 희망분야 헤더 행은 서술문이 아니므로 원문 텍스트 추출에서는 제외
                 continue
@@ -1278,12 +1322,16 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                 effective_area = area_val
             elif is_same_student and curr_area:
                 effective_area = curr_area
-            else:
+            elif area_col:
                 effective_area = get_changche_area_from_cell(area_val, content_val)
+            else:
+                effective_area = ""
 
-            is_same_area = (not effective_area or not curr_area or effective_area == curr_area or effective_area in curr_area or curr_area in effective_area)
+            is_same_area = (not area_col or not effective_area or not curr_area or effective_area == curr_area or effective_area in curr_area or curr_area in effective_area)
 
-            is_new_activity_start = bool(re.match(
+            # 스포츠클럽은 별도의 독립 서술문 영역이 아니라 해당 학년 동아리의 부속 이수 기록임
+            is_sports_club = '스포츠클럽' in content_val
+            is_new_activity_start = (not is_sports_club) and bool(re.match(
                 r'^(?:(?:\([12]학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]{1,20}\s*[:：]|\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\))',
                 content_val
             ))
@@ -1473,24 +1521,46 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
                         'clean_subj': clean_cand
                     })
 
+            grade_col_name = col_map.get('grade_col', '학년')
+
             if not matches:
-                item = base_info.copy()
-                item['과목명'] = clean_row_subj if clean_row_subj not in ['세부능력및특기사항', '세부능력 및 특기사항', '세특', '세부', 'nan'] else '개세특'
-                item['내용'] = text_norm.replace('\n', ' ').strip()
-                item['글자수'] = len(item['내용'])
-                unfolded_rows.append(item)
+                # 같은 학생 + 같은 학년의 이전 레코드가 있으면 해당 과목에 온전히 이어붙이기 수행
+                if (unfolded_rows and 
+                    unfolded_rows[-1].get(num_col) == base_info.get(num_col) and 
+                    unfolded_rows[-1].get(name_col) == base_info.get(name_col) and
+                    unfolded_rows[-1].get(grade_col_name) == base_info.get(grade_col_name)):
+                    last_unfolded = unfolded_rows[-1]
+                    merged_content = smart_concatenate_text(last_unfolded['내용'], text_norm)
+                    last_unfolded['내용'] = merged_content
+                    last_unfolded['글자수'] = len(merged_content)
+                else:
+                    item = base_info.copy()
+                    item['과목명'] = clean_row_subj if clean_row_subj not in ['세부능력및특기사항', '세부능력 및 특기사항', '세특', '세부', 'nan'] else '개세특'
+                    item['내용'] = text_norm.replace('\n', ' ').strip()
+                    item['글자수'] = len(item['내용'])
+                    unfolded_rows.append(item)
                 continue
 
             # If there is content before the first matched subject heading
             first_m = matches[0]
             if first_m['start_full'] > 0:
                 pre_content = text_norm[:first_m['start_full']].strip()
-                if len(pre_content) > 10:
-                    item = base_info.copy()
-                    item['과목명'] = clean_row_subj if clean_row_subj not in ['세부능력및특기사항', '세부능력 및 특기사항', '세특', '세부', 'nan'] else '개세특'
-                    item['내용'] = pre_content.replace('\n', ' ').strip()
-                    item['글자수'] = len(item['내용'])
-                    unfolded_rows.append(item)
+                if len(pre_content) > 0:
+                    # 같은 학생 + 같은 학년의 이전 과목이 있으면 해당 과목의 뒷부분으로 완벽 병합!
+                    if (unfolded_rows and 
+                        unfolded_rows[-1].get(num_col) == base_info.get(num_col) and 
+                        unfolded_rows[-1].get(name_col) == base_info.get(name_col) and
+                        unfolded_rows[-1].get(grade_col_name) == base_info.get(grade_col_name)):
+                        last_unfolded = unfolded_rows[-1]
+                        merged_content = smart_concatenate_text(last_unfolded['내용'], pre_content)
+                        last_unfolded['내용'] = merged_content
+                        last_unfolded['글자수'] = len(merged_content)
+                    else:
+                        item = base_info.copy()
+                        item['과목명'] = clean_row_subj if clean_row_subj not in ['세부능력및특기사항', '세부능력 및 특기사항', '세특', '세부', 'nan'] else '개세특'
+                        item['내용'] = pre_content.replace('\n', ' ').strip()
+                        item['글자수'] = len(item['내용'])
+                        unfolded_rows.append(item)
 
             for i in range(len(matches)):
                 m_curr = matches[i]
@@ -2236,16 +2306,138 @@ def main():
     guideline_text = load_guideline_content()
 
     # --------------------------------------------------------------------------
-    # 사이드바 Layout & Expanders
+    # Global CSS injection (Direct DOM injection via st.markdown)
+    # --------------------------------------------------------------------------
+    st.markdown("""
+        <style>
+            /* 1. Real Dropzone Box Styling */
+            section[role="presentation"],
+            [data-testid="stFileUploaderDropzone"] {
+                background-color: #F8FAFC !important;
+                border: 2px dashed #94A3B8 !important;
+                border-radius: 12px !important;
+                padding: 1.4rem 1rem !important;
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                justify-content: center !important;
+                text-align: center !important;
+                cursor: pointer !important;
+                min-height: 85px !important;
+                transition: all 0.2s ease !important;
+            }
+
+            section[role="presentation"]:hover,
+            [data-testid="stFileUploaderDropzone"]:hover {
+                border-color: #2563EB !important;
+                background-color: #EFF6FF !important;
+            }
+
+            /* Hide ALL internal Upload buttons and small helper text */
+            section[role="presentation"] button,
+            section[role="presentation"] > span,
+            section[role="presentation"] small,
+            [data-testid="stFileUploaderDropzone"] button,
+            [data-testid="stFileUploaderDropzone"] small {
+                display: none !important;
+                visibility: hidden !important;
+                height: 0 !important;
+                width: 0 !important;
+                overflow: hidden !important;
+                position: absolute !important;
+            }
+
+            /* Clean Dropzone Label Text */
+            section[role="presentation"]::after,
+            [data-testid="stFileUploaderDropzone"]::after {
+                content: "여기에 생기부 엑셀 파일 드롭\\A(또는 클릭하여 파일 선택)" !important;
+                white-space: pre-wrap !important;
+                font-size: 0.9rem !important;
+                font-weight: 700 !important;
+                color: #1E293B !important;
+                line-height: 1.6 !important;
+                text-align: center !important;
+                display: block !important;
+                pointer-events: none !important;
+            }
+
+            /* -------------------------------------------------------------
+               ABSOLUTELY ZERO GAP BETWEEN ALL SIDEBAR ELEMENTS
+               ------------------------------------------------------------- */
+            [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+                gap: 0px !important;
+                row-gap: 0px !important;
+            }
+
+            [data-testid="stSidebar"] [data-testid="stElementContainer"] {
+                margin: 0px !important;
+                margin-top: 0px !important;
+                margin-bottom: 0px !important;
+                padding: 0px !important;
+                padding-top: 0px !important;
+                padding-bottom: 0px !important;
+            }
+
+            [data-testid="stSidebar"] [data-testid="stExpander"],
+            [data-testid="stSidebar"] details {
+                margin: 0px !important;
+                margin-top: 0px !important;
+                margin-bottom: 0px !important;
+            }
+
+            [data-testid="stSidebar"] hr,
+            [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] hr {
+                margin: 0px !important;
+                margin-top: 0px !important;
+                margin-bottom: 0px !important;
+                padding: 0px !important;
+                border: none !important;
+                border-top: 1.5px solid #94A3B8 !important;
+            }
+
+            [data-testid="stSidebar"] .stMarkdown p,
+            [data-testid="stSidebar"] .stMarkdown div,
+            [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+            [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] div {
+                margin-top: 0px !important;
+                margin-bottom: 0px !important;
+            }
+
+            [data-testid="stSidebar"] [data-testid="stButton"],
+            [data-testid="stSidebar"] [data-testid="stBaseButton-secondary"] {
+                margin: 0px !important;
+                margin-top: 0px !important;
+                margin-bottom: 0px !important;
+            }
+
+            /* Expander internals */
+            [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+                padding: 0.65rem !important;
+            }
+            [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stVerticalBlock"] {
+                gap: 0.65rem !important;
+                row-gap: 0.65rem !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # --------------------------------------------------------------------------
+    # 사이드바 Layout & Expanders (정확히 8개의 메인 요소로 구성)
     # --------------------------------------------------------------------------
     with st.sidebar:
+        # 1. 제목 및 부제목 통합 블록
         st.markdown("""
-            <div style="padding: 0.2rem 0 0.8rem 0; border-bottom: 1px solid #E2E8F0; margin-bottom: 0.85rem; text-align: center;">
-                <h2 style="font-size: 1.45rem; font-weight: 800; color: #0F172A; margin: 0; line-height: 1.2; letter-spacing: -0.4px;">꼼체크체크</h2>
-                <div style="font-size: 0.88rem; font-weight: 600; color: #475569; margin-top: 0.35rem; letter-spacing: -0.2px;">생기부 AI 검증 시스템</div>
+            <div style="text-align: center; margin: 0; padding: 1.0rem 0 1.0rem 0;">
+                <h2 style="font-size: 1.45rem; font-weight: 800; color: #0F172A; margin: 0; padding: 0; line-height: 1.2; letter-spacing: -0.4px;">꼼체크체크</h2>
+                <div style="font-size: 0.88rem; font-weight: 600; color: #475569; padding-top: 0.5rem !important; padding-bottom: 1.5rem !important; margin: 0 !important; letter-spacing: -0.2px;">생기부 AI 검증 시스템</div>
             </div>
         """, unsafe_allow_html=True)
+        
+        # 2. 상단 구분선
+        st.markdown("---")
 
+        # 3. AI API 설정
+        st.markdown("<div style='height: 1.5rem;'></div>", unsafe_allow_html=True)
         with st.expander("AI API 설정", expanded=False):
             provider = st.selectbox("AI 프로바이더 선택", ["Gemini", "OpenAI", "Claude"])
             
@@ -2301,8 +2493,8 @@ def main():
                     2. **API Keys -> Create Key** 클릭 후 복사
                     """)
 
+        # 4. 엑셀 파일 업로드
         with st.expander("엑셀 파일 업로드", expanded=True):
-            # Custom dropzone label
             uploader_key = f"auto_file_uploader_{st.session_state.get('uploader_key_version', 0)}"
             uploaded_files = st.file_uploader(
                 "생기부 엑셀 파일 (.xlsx, .xls)",
@@ -2312,76 +2504,25 @@ def main():
                 label_visibility="collapsed"
             )
 
-            # Inject CSS into parent document to turn the REAL uploader into a pure dropzone
-            stc.html("""
-            <script>
-            (function() {
-                var doc = window.parent.document;
-                var oldStyle = doc.getElementById('hide-upload-btn-style');
-                if (oldStyle) oldStyle.remove();
-                
-                var style = doc.createElement('style');
-                style.id = 'hide-upload-btn-style';
-                style.textContent = `
-                    /* Real Dropzone Box Styling */
-                    section[role="presentation"],
-                    [data-testid="stFileUploaderDropzone"] {
-                        background-color: #F8FAFC !important;
-                        border: 2px dashed #94A3B8 !important;
-                        border-radius: 12px !important;
-                        padding: 1.4rem 1rem !important;
-                        display: flex !important;
-                        flex-direction: column !important;
-                        align-items: center !important;
-                        justify-content: center !important;
-                        text-align: center !important;
-                        cursor: pointer !important;
-                        min-height: 85px !important;
-                        transition: all 0.2s ease !important;
-                    }
-
-                    section[role="presentation"]:hover,
-                    [data-testid="stFileUploaderDropzone"]:hover {
-                        border-color: #2563EB !important;
-                        background-color: #EFF6FF !important;
-                    }
-
-                    /* Hide ALL internal Upload buttons and small helper text */
-                    section[role="presentation"] button,
-                    section[role="presentation"] > span,
-                    section[role="presentation"] small,
-                    [data-testid="stFileUploaderDropzone"] button,
-                    [data-testid="stFileUploaderDropzone"] small {
-                        display: none !important;
-                        visibility: hidden !important;
-                        height: 0 !important;
-                        width: 0 !important;
-                        overflow: hidden !important;
-                        position: absolute !important;
-                    }
-
-                    /* Clean Dropzone Label Text */
-                    section[role="presentation"]::after,
-                    [data-testid="stFileUploaderDropzone"]::after {
-                        content: "여기에 생기부 엑셀 파일 드롭\\A(또는 클릭하여 파일 선택)" !important;
-                        white-space: pre-wrap !important;
-                        font-size: 0.9rem !important;
-                        font-weight: 700 !important;
-                        color: #1E293B !important;
-                        line-height: 1.6 !important;
-                        text-align: center !important;
-                        display: block !important;
-                        pointer-events: none !important;
-                    }
-                `;
-                doc.head.appendChild(style);
-            })();
-            </script>
-            """, height=0)
-
+            # 파일이 비어있는 상태에서 직전에 2개 이상 파일 업로드 시도가 있었다면 경고 배너 출력
+            if not uploaded_files and st.session_state.get('multi_file_warning', False):
+                st.markdown("""
+                    <div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; color: #991B1B; border-radius: 8px; padding: 0.55rem 0.6rem; font-size: 0.82rem; text-align: center; margin: 0.4rem 0 0 0; line-height: 1.45; width: 100%; box-sizing: border-box; font-weight: 600;">
+                        ⚠️ 한 번에 1개의 파일만 업로드할 수 있습니다.<br>
+                        <span style="font-size: 0.76rem; font-weight: 500; color: #B91C1C;">(2개 이상의 파일이 감지되어 취소되었습니다 ➔ 1개 파일만 드래그해 주세요)</span>
+                    </div>
+                """, unsafe_allow_html=True)
 
             if uploaded_files:
-                for uploaded_file in uploaded_files:
+                if len(uploaded_files) > 1:
+                    # 2개 이상 들어오면 즉시 업로더를 리셋하여 드롭존에서 완전히 퇴출
+                    st.session_state['multi_file_warning'] = True
+                    st.session_state['uploader_key_version'] = st.session_state.get('uploader_key_version', 0) + 1
+                    st.rerun()
+                else:
+                    # 정상적으로 1개 파일만 들어온 경우 경고 해제
+                    st.session_state['multi_file_warning'] = False
+                    uploaded_file = uploaded_files[0]
                     try:
                         try:
                             raw_df = pd.read_excel(uploaded_file, header=None)
@@ -2403,7 +2544,7 @@ def main():
                                 st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
                                 st.session_state['llm_audit_results'] = None
                                 st.session_state['has_audited'] = False
-                                st.sidebar.info("새 파일 업로드가 감지되어 이전 분석 결과 및 기존 데이터가 자동 초기화되었습니다.")
+                                st.info("새 파일 업로드가 감지되어 이전 분석 결과 및 기존 데이터가 자동 초기화되었습니다.")
 
                             st.session_state['file_signatures'][type_key] = file_sig
 
@@ -2439,30 +2580,58 @@ def main():
                         unique_students_cnt = len(pd.DataFrame({'num': num_series, 'name': name_series}).drop_duplicates())
                         
                         if type_key == "창체":
-                            expected_total = unique_students_cnt * 3
                             actual_records_cnt = len(final_df)
                             hb_list = st.session_state.get('data_store', {}).get('hope_blank_records', [])
                             blank_cnt = len(hb_list) if hb_list else 0
-                            if actual_records_cnt == expected_total:
-                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {expected_total}개 영역 100% 감지 완료)")
-                            elif actual_records_cnt + blank_cnt == expected_total:
-                                st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, 서술문 {actual_records_cnt}개 + 희망분야 공란 {blank_cnt}개 100% 감지)")
+
+                            # 학년 구성 자동 분석 (단일 학년 vs 다개년 누적)
+                            grade_series = get_safe_series(final_df, col_map.get('grade_col', ''))
+                            unique_grades = sorted([str(g).strip() for g in grade_series.dropna().unique() if str(g).strip() not in ['', 'nan', 'None']])
+                            is_multi_grade = len(unique_grades) > 1
+
+                            if is_multi_grade:
+                                grades_label = f" [{', '.join(unique_grades)} 누적]"
+                                detect_msg = f"<b>[{type_key}] 감지 완료!</b> (총 {unique_students_cnt}명 학생{grades_label}, {actual_records_cnt}개 영역 100% 감지 완료)"
                             else:
-                                missing_cnt = expected_total - actual_records_cnt
-                                if missing_cnt > 0:
-                                    st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {actual_records_cnt}개 영역 기록, 미작성/공란 {missing_cnt}개 영역)")
+                                expected_total = unique_students_cnt * 3
+                                if actual_records_cnt == expected_total:
+                                    detect_msg = f"<b>[{type_key}] 감지 완료!</b> (총 {unique_students_cnt}명 학생, {expected_total}개 영역 100% 감지 완료)"
+                                elif actual_records_cnt + blank_cnt == expected_total:
+                                    detect_msg = f"<b>[{type_key}] 감지 완료!</b> (총 {unique_students_cnt}명 학생, 서술문 {actual_records_cnt}개 + 희망분야 공란 {blank_cnt}개 100% 감지)"
                                 else:
-                                    st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {actual_records_cnt}개 영역 기록)")
+                                    missing_cnt = expected_total - actual_records_cnt
+                                    if missing_cnt > 0:
+                                        detect_msg = f"<b>[{type_key}] 감지 완료!</b> (총 {unique_students_cnt}명 학생, {actual_records_cnt}개 영역 기록, 미작성 {missing_cnt}개 영역)"
+                                    else:
+                                        detect_msg = f"<b>[{type_key}] 감지 완료!</b> (총 {unique_students_cnt}명 학생, {actual_records_cnt}개 영역 기록)"
                         elif type_key == "세특":
-                            st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생, {len(final_df)}개 과목 기록)")
+                            detect_msg = f"<b>[{type_key}] 감지 완료!</b> (총 {unique_students_cnt}명 학생, {len(final_df)}개 과목 기록)"
                         else:
-                            st.sidebar.success(f"**[{type_key}] 감지 완료!** (총 {unique_students_cnt}명 학생)")
+                            detect_msg = f"<b>[{type_key}] 감지 완료!</b> (총 {unique_students_cnt}명 학생)"
+
+                        st.markdown(f"""
+                            <div style="background-color: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; border-radius: 8px; padding: 0.45rem 0.5rem; font-size: 0.83rem; text-align: center; margin: 0; line-height: 1.35; width: 100%; box-sizing: border-box;">
+                                ✅ {detect_msg}
+                            </div>
+                        """, unsafe_allow_html=True)
 
                     except Exception as e:
-                        st.sidebar.error(f"파일 처리 오류 ({uploaded_file.name}): {str(e)}")
+                        st.markdown(f"""
+                            <div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; color: #991B1B; border-radius: 8px; padding: 0.2rem 0.2rem 0.5rem 0.5rem; font-size: 0.83rem; text-align: center; margin: 0; line-height: 1.35; width: 100%; box-sizing: border-box;">
+                                ⚠️ 파일 처리 오류 ({uploaded_file.name}): {str(e)}
+                            </div>
+                        """, unsafe_allow_html=True)
                         with st.expander("오류 상세 내용"):
                             st.code(traceback.format_exc())
 
+            if any(st.session_state['data_store'].get(k) is not None for k in ['창체', '세특', '행특']):
+                btn_run_llm = st.button("AI 정밀 분석 실행", type="primary", use_container_width=True, key="sidebar_btn_run_llm")
+                if btn_run_llm:
+                    st.session_state['sidebar_manage_mode_radio'] = "메인 AI 정밀 검증"
+            else:
+                btn_run_llm = False
+
+        # 5. 데이터 관리 메뉴
         with st.expander("데이터 관리 메뉴", expanded=False):
             manage_mode = st.radio(
                 "메뉴 기능 선택",
@@ -2475,8 +2644,13 @@ def main():
                 key="sidebar_manage_mode_radio"
             )
 
-        st.sidebar.markdown("---")
-        if st.sidebar.button("분석 결과 초기화", use_container_width=True, help="업로드된 모든 생기부 파일과 AI 검증 결과를 초기화하고 새로 시작합니다."):
+        # 6. 하단 구분선
+        st.markdown("<div style='height: 0.5rem;'></div>", unsafe_allow_html=True)
+        st.markdown("---")
+        
+        # 7. 분석 결과 초기화 버튼
+        st.markdown("<div style='height: 1.5rem;'></div>", unsafe_allow_html=True)
+        if st.button("분석 결과 초기화", use_container_width=True, help="업로드된 모든 생기부 파일과 AI 검증 결과를 초기화하고 새로 시작합니다."):
             st.session_state['uploader_key_version'] = st.session_state.get('uploader_key_version', 0) + 1
             st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
             st.session_state['llm_audit_results'] = None
@@ -2507,19 +2681,6 @@ def main():
                 </div>
             """, unsafe_allow_html=True)
         else:
-            col_b1, col_b2 = st.columns([3, 1])
-            with col_b1:
-                btn_run_llm = st.button("AI 정밀 분석 실행", type="primary", use_container_width=True)
-            with col_b2:
-                btn_reset_main = st.button("전체 데이터 초기화", use_container_width=True, help="업로드된 데이터와 AI 분석 결과를 모두 지우고 초기 상태로 되돌립니다.")
-                if btn_reset_main:
-                    st.session_state['uploader_key_version'] = st.session_state.get('uploader_key_version', 0) + 1
-                    st.session_state['data_store'] = {'raw_data': {}, 'merge_logs': {}}
-                    st.session_state['llm_audit_results'] = None
-                    st.session_state['has_audited'] = False
-                    st.session_state['file_signatures'] = {}
-                    st.rerun()
-
             if btn_run_llm:
                 if not api_key:
                     st.error("AI API Key가 입력되지 않았습니다. 사이드바에서 API Key를 입력해 주세요.")
@@ -2548,17 +2709,29 @@ def main():
                                 st_id = str(item.get("student_id", item.get("학번", "00000"))).strip()
 
                                 matched_payload = None
-                                # 1. Exact match with student_id + original_text in text_content
-                                if orig_text_item and st_id:
-                                    matched_payload = next((p for p in records_payload if p["학번"] == st_id and orig_text_item in p["기록텍스트"]), None)
+                                item_taken_grade = str(item.get("taken_grade", item.get("이수학년", ""))).strip()
+
+                                # 0. 이수시간 0 관련 오류인 경우 해당 학생의 0시간 레코드 우선 매칭
+                                if orig_text_item in ["0", "0시간", "0 시간"] or "이수시간" in str(item.get("reason", "")):
+                                    matched_payload = next((p for p in records_payload if p["학번"] == st_id and str(p.get("이수시간", "")).strip() == "0" and (not sub_cat_item or p["세부"] == sub_cat_item)), None)
+
+                                # 1. Exact match with student_id + taken_grade + original_text
+                                if not matched_payload and orig_text_item and st_id:
+                                    if item_taken_grade:
+                                        matched_payload = next((p for p in records_payload if p["학번"] == st_id and p.get("이수학년") == item_taken_grade and orig_text_item in p["기록텍스트"]), None)
+                                    if not matched_payload:
+                                        matched_payload = next((p for p in records_payload if p["학번"] == st_id and orig_text_item in p["기록텍스트"]), None)
                                 
                                 # 2. Match with student_name + original_text in text_content
                                 if not matched_payload and orig_text_item and item.get("student_name"):
                                     matched_payload = next((p for p in records_payload if p["이름"] == item.get("student_name") and orig_text_item in p["기록텍스트"]), None)
 
-                                # 3. Match with student_id + sub_category
+                                # 3. Match with student_id + taken_grade + sub_category
                                 if not matched_payload and sub_cat_item and sub_cat_item not in ["창체", "창의적체험활동", "세특", "세부능력및특기사항"]:
-                                    matched_payload = next((p for p in records_payload if p["학번"] == st_id and p["세부"] == sub_cat_item), None)
+                                    if item_taken_grade:
+                                        matched_payload = next((p for p in records_payload if p["학번"] == st_id and p.get("이수학년") == item_taken_grade and p["세부"] == sub_cat_item), None)
+                                    if not matched_payload:
+                                        matched_payload = next((p for p in records_payload if p["학번"] == st_id and p["세부"] == sub_cat_item), None)
                                 
                                 # 4. Match with original_text across all records
                                 if not matched_payload and orig_text_item:
@@ -2581,6 +2754,27 @@ def main():
                                 elif true_cat == "세특" and true_sub in ["세부능력및특기사항", "세부능력 및 특기사항", "세특", "세부", "nan", ""]:
                                     true_sub = "개세특"
 
+                                # 1. 분할된 불필요한 음절/글자 제거 관련 환각 필터링
+                                reason_str = str(item.get("reason", item.get("수정해야하는 이유나 근거", "")))
+                                if any(k in reason_str for k in ["분할된", "불필요한 음절", "음절을 제거", "글자를 제거", "불필요한 글자", "음절 제거", "글자 제거", "음절 삭제", "글자 삭제"]):
+                                    continue
+
+                                # 2. 학기 표기('(1학기)', '(2학기)') 삭제/제거 환각 필터링
+                                suggested_str = str(item.get("suggested_text", item.get("수정 후", ""))).strip()
+                                if any(k in reason_str for k in ["학기 정보", "학기 표기", "과목명만 기재", "학기를 제거", "학기 제거", "학기 정보는"]):
+                                    continue
+                                if re.match(r'^\([12]학기\)\s*', orig_text_item) and not re.match(r'^\([12]학기\)\s*', suggested_str):
+                                    continue
+
+                                # 3. 분할된 문장 잘림/미완결에 대한 임의 단어 보완 및 문장 완성 환각 필터링
+                                if any(k in reason_str for k in [
+                                    "중간에 잘려", "단어를 보완", "문장을 완성", "잘린 '", "잘린 \"",
+                                    "결합하여 자연스러운", "결합하여 문맥", "의미가 연결되도록", "문맥으로 수정",
+                                    "불완전한 문장", "문장 미완결", "문장이 종결되지", "문장이 끊겨", "단어가 잘려",
+                                    "단어가 불완전", "앞선 문장에서 잘린"
+                                ]):
+                                    continue
+
                                 audit_rows.append({
                                     "학번": st_id,
                                     "이름": true_name,
@@ -2594,13 +2788,30 @@ def main():
                                 })
 
                             if audit_rows:
+                                # 완전 동일 행 중복 제거 (Deduplication)
+                                dedup_audit_rows = []
+                                seen_keys = set()
+                                for r in audit_rows:
+                                    dedup_key = (
+                                        str(r.get("학번", "")),
+                                        str(r.get("이수학년", "")),
+                                        str(r.get("세부", "")),
+                                        str(r.get("수정전", "")).strip(),
+                                        str(r.get("수정 후", "")).strip()
+                                    )
+                                    if dedup_key not in seen_keys:
+                                        seen_keys.add(dedup_key)
+                                        dedup_audit_rows.append(r)
+                                audit_rows = dedup_audit_rows
+
                                 res_df = pd.DataFrame(audit_rows)
                                 sev_rank_map = {
                                     "수정 필수": 1, "수정필수": 1,
-                                    "수정 권장": 2, "수정 권고": 2, "수정권장": 2, "수정권고": 2
+                                    "수정 권장": 2, "수정 권고": 2, "수정권장": 2, "수정권고": 2,
+                                    "검토 권장": 3, "검토 권고": 3, "검토권장": 3, "검토권고": 3
                                 }
                                 area_order_map = {"자율활동": 1, "동아리활동": 2, "진로활동": 3}
-                                res_df['_sev_rank'] = res_df['수정구분'].map(lambda x: sev_rank_map.get(str(x).strip(), 3))
+                                res_df['_sev_rank'] = res_df['수정구분'].map(lambda x: sev_rank_map.get(str(x).strip(), 4))
                                 res_df['_area_rank'] = res_df['세부'].map(lambda x: area_order_map.get(str(x).strip(), 4))
                                 res_df = res_df.sort_values(by=['학번', '_area_rank', '_sev_rank', '이름'], ascending=[True, True, True, True]).reset_index(drop=True)
                                 res_df = res_df.drop(columns=['_sev_rank', '_area_rank'])
@@ -2622,16 +2833,19 @@ def main():
 
             if audit_df is not None and st.session_state.get('has_audited', False):
                 req_cnt = len(audit_df[audit_df['수정구분'].str.contains('필수', na=False)]) if not audit_df.empty else 0
-                rec_cnt = len(audit_df[audit_df['수정구분'].str.contains('권장|권고', na=False)]) if not audit_df.empty else 0
+                rec_cnt = len(audit_df[audit_df['수정구분'].str.contains('수정 권장|수정권장|수정 권고|수정권고', na=False)]) if not audit_df.empty else 0
+                rev_cnt = len(audit_df[audit_df['수정구분'].str.contains('검토', na=False)]) if not audit_df.empty else 0
 
-                col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
                 with col_m1:
                     st.markdown(f'<div class="metric-card"><div class="val" style="color:#DC2626;">{len(audit_df)}</div><div class="lbl">총 검출 오류 건수</div></div>', unsafe_allow_html=True)
                 with col_m2:
                     st.markdown(f'<div class="metric-card"><div class="val" style="color:#EF4444;">{req_cnt}</div><div class="lbl">수정 필수 (지침 위반/오타)</div></div>', unsafe_allow_html=True)
                 with col_m3:
-                    st.markdown(f'<div class="metric-card"><div class="val" style="color:#F59E0B;">{rec_cnt}</div><div class="lbl">수정 권장 (어미/문맥)</div></div>', unsafe_allow_html=True)
+                    st.markdown(f'<div class="metric-card"><div class="val" style="color:#F59E0B;">{rec_cnt}</div><div class="lbl">수정 권장 (문맥/기재권고)</div></div>', unsafe_allow_html=True)
                 with col_m4:
+                    st.markdown(f'<div class="metric-card"><div class="val" style="color:#6366F1;">{rev_cnt}</div><div class="lbl">검토 권장 (학생관점/표현)</div></div>', unsafe_allow_html=True)
+                with col_m5:
                     st.markdown(f'<div class="metric-card"><div class="val" style="color:#10B981;">{provider} AI</div><div class="lbl">사용된 분석 엔진</div></div>', unsafe_allow_html=True)
 
                 st.markdown("---")
@@ -2642,7 +2856,7 @@ def main():
                 else:
                     col_f1, col_f2 = st.columns([2, 3])
                     with col_f1:
-                        filter_cat = st.selectbox("수정 구분 필터", ["전체 보기", "수정 필수만 보기", "수정 권장만 보기"])
+                        filter_cat = st.selectbox("수정 구분 필터", ["전체 보기", "수정 필수만 보기", "수정 권장만 보기", "검토 권장만 보기"])
                     with col_f2:
                         search_keyword = st.text_input("학생 이름/학번 검색", placeholder="예: 10101 또는 김철수")
 
@@ -2650,7 +2864,9 @@ def main():
                     if filter_cat == "수정 필수만 보기":
                         filtered_df = filtered_df[filtered_df["수정구분"].str.contains('필수', na=False)]
                     elif filter_cat == "수정 권장만 보기":
-                        filtered_df = filtered_df[filtered_df["수정구분"].str.contains('권장|권고', na=False)]
+                        filtered_df = filtered_df[filtered_df["수정구분"].str.contains('수정 권장|수정권장|수정 권고|수정권고', na=False)]
+                    elif filter_cat == "검토 권장만 보기":
+                        filtered_df = filtered_df[filtered_df["수정구분"].str.contains('검토', na=False)]
 
                     if search_keyword.strip():
                         kw = search_keyword.strip()
@@ -2666,7 +2882,8 @@ def main():
                     st.markdown("### 검증 리포트 & 데이터 다운로드")
 
                     req_df_out = filtered_df[filtered_df['수정구분'].str.contains('필수', na=False)]
-                    rec_df_out = filtered_df[filtered_df['수정구분'].str.contains('권장|권고', na=False)]
+                    # 사용자 지침: '수정 권장'용 분리 파일에는 '검토 권장'도 함께 표시
+                    rec_df_out = filtered_df[filtered_df['수정구분'].str.contains('권장|권고|검토', na=False) & ~filtered_df['수정구분'].str.contains('필수', na=False)]
 
                     file_names = st.session_state['data_store'].get('file_names', {})
                     base_names = [os.path.splitext(file_names[t])[0] for t in available_types if t in file_names]
@@ -2699,13 +2916,13 @@ def main():
                             )
 
                     with c_dl2:
-                        st.markdown(f"#### 수정 권고 ({len(rec_df_out)}건)")
+                        st.markdown(f"#### 수정 권장 (검토 권장 포함) ({len(rec_df_out)}건)")
                         b3, b4 = st.columns(2)
                         with b3:
                             st.download_button(
                                 "엑셀 (.xlsx)",
                                 data=create_audit_report_excel_bytes(rec_df_out),
-                                file_name=f"{prefix}_수정권고.xlsx",
+                                file_name=f"{prefix}_수정권장.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="dl_rec_excel",
                                 use_container_width=True,
@@ -2715,7 +2932,7 @@ def main():
                             st.download_button(
                                 "PDF (.pdf)",
                                 data=create_audit_report_pdf_bytes(rec_df_out),
-                                file_name=f"{prefix}_수정권고.pdf",
+                                file_name=f"{prefix}_수정권장.pdf",
                                 mime="application/pdf",
                                 key="dl_rec_pdf",
                                 use_container_width=True,
