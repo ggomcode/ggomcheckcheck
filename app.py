@@ -462,66 +462,38 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 
     prompt_instructions = f"""
 당신은 대한민국 고등학교 학교생활기록부(창체, 세특, 행특) 오탈자 및 기재지침 검증 최고 전문가 AI입니다.
+전달된 학생의 모든 활동 및 과목 서술문을 단어 하나하나 전수 정밀 감사하여, 발견된 모든 오류를 빠짐없이 'results' 목록에 담아 반환하십시오.
 
 [참고 지침 문서]
 {guideline_text}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【검증 5대 핵심 지침】
+【검증 핵심 대상 및 등급(severity) 기준】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. 오탈자, 맞춤법, 띄어쓰기 및 한국어 문법적 오류:
-   - 모든 문장의 철자, 띄어쓰기, 어미 활용(예: '도우는'->'돕는', '만듬'->'만듦', '되서'->'돼서', '안되'->'안 돼', '치뤄'->'치러' 등), 주어-서술어 호응 오탈자를 정밀 검출하십시오.
-2. 입력 불가 용어 및 브랜드/서비스명:
-   - 지침 2.3 매핑표의 용어(네이버, 구글, 유튜브, 카카오톡, KTX, MBTI, 챗GPT, ZOOM 등)가 발견되면 지정된 올바른 대체어로 교정 제안하십시오.
-3. 생기부 기재 금지어 및 금지 항목:
-   - 수상, 대회, 논문, 자격증, 방과후학교, 특정 대학/기관명, 상호, 교사명, 학교이름, 해외활동 등 금지 항목을 감지하십시오.
-   - [중요 규칙] 도서명(책 제목) 및 저자명(저자 이름)은 지침 2.1.4에 따라 독서활동 및 모든 영역에 기재할 수 있는 정당한 항목이므로 절대로 오탈자나 오류로 감지하지 마십시오.
-4. 특수문자 제한 위반:
-   - 따옴표('"), 쉼표(,), 마침표(.), 느낌표(!), 물음표(?), 콜론(:), 괄호 외 불필요 특수기호(★, ◆, ~, @, #, $ 등)를 감지하십시오.
-5. 학생 입장 서술 지양 어미 및 주관적 표현 ('검토 권장' 완화 규칙):
-   - [엄격 규칙] 문장 맨 끝의 종결 어미가 '~느낌.', '~배움.', '~다짐함.' 처럼 교사의 관찰이 아닌 학생의 단순 독백 형태로 끝나는 경우, 또는 학생의 주관적 감상/감정/흥미 표현, 교사의 주관적 감정 표현은 '수정 필수'나 '수정 권장'이 아닌 **'검토 권장'**으로 완화하여 제안하십시오.
-   - [중요 예외] '느꼈던', '생각한', '깨달은', '고민한', '배운' 등 문장 내부의 수식어나 활동 맥락(예: '자신이 느꼈던 행복에 대해 발표함', '느꼈던 점을 바탕으로 보고서를 작성함')은 학생의 자연스러운 활동 과정 서술이므로 절대로 오류로 지적하거나 수정을 제안하지 마십시오.
-6. 수정 이유/근거 작성 시 지침 번호 제외:
-   - [필수 규칙] 'reason(수정해야하는 이유나 근거)' 항목을 작성할 때는 개별 지침의 조항 번호(예: '지침 2.1.4', '지침 2.3', '제3조', '3.1.2' 등)를 절대로 적지 마십시오. 번호 없이 맞춤법, 띄어쓰기, 어미 교정, 불필요 특수문자 제거 등 구체적인 수정 이유만 명확히 설명하십시오.
-7. 창체 영역별 이수시간 기재 및 0시간 점검 규칙:
-   - [엄격 규칙] 창체 영역별 이수시간 검증은 오직 일반 학생의 이수시간이 '0시간'인 경우(또는 텍스트 내 '(0시간)'이 기재된 경우)에만 '수정 필수'로 검출하십시오.
-   - [중요 예외] '순회교육', '위탁학생', '위탁교육', '병원학교', '원격수업' 등 정당한 특수/위탁 교육 사유로 서술문('순회교육으로 활동 내용이 없음.', '위탁기관의 기록을 따름' 등)이 기재된 학생은 0시간이 합법적인 기본값이므로 절대로 0시간 오류로 검출하거나 지적하지 마십시오.
-   - [필수 규칙] 16시간, 17시간 등 정상 이수시간이나 이수시간 빈칸/미기재에 대해서는 절대로 이수시간 관련 검출 메시지나 오류를 내보내지 마십시오.
-8. 창체 세부 영역 단일화 및 명확화:
-   - [필수 규칙] 창의적 체험활동의 'sub_category(세부)' 항목은 기록 내용을 분석하여 반드시 '자율활동', '동아리활동', '진로활동' 중 명확하게 1개 영역만 지정해야 합니다. 절대로 '자율/동아리/진로'처럼 여러 개를 슬래시로 묶어서 표기하지 마십시오.
-9. 기업/브랜드 알파벳 1글자 블라인드 표기 허용 규칙:
-   - [중요 규칙] 'E사', 'A사', 'B사', 'K사'처럼 기업명이나 상호명을 블라인드/익명화하기 위한 '알파벳 1글자+사(社)' 형태의 표기(예: 'E사', 'A사')는 정당한 익명화 기재 방식입니다. 1글자짜리 정식회사명이나 브랜드는 존재하지 않으므로 절대로 '상호명/기업 이니셜 사용' 오류로 감지하거나 지적하지 마십시오.
-11. 엑셀 페이지 나눔/결합 과정의 분할 음절 보존 및 띄어쓰기 예외 규칙:
-   - [절대 금지] 엑셀 페이지 분할 경계에서 단어나 문장이 쪼개져 보이는 경우(예: 앞선 문장에서 이어진 '론 학생임을', '력적', '함' 등), **그 어떤 경우에도 원문의 글자나 음절을 '불필요한 음절/글자'라며 임의로 삭제/제거해서는 절대로 안 됩니다.** 그 어떤 생기부 내용도 임의 삭제 제안을 하지 마십시오.
-   - [필수 규칙] 문장이 분할되었다고 판단되면 앞뒤 문맥을 이어서 분석하되, 분할/결합 연결부의 띄어쓰기 오류(예: '상대 성', '분석 함' 등)는 엑셀 데이터의 결합 특성이므로 절대로 오류로 내보내지 마십시오. 오직 문맥상 명백한 맞춤법(철자) 오류, 표준어 규정 위반, 기재금지어만 검출하십시오.
-12. 동아리 명칭 및 활동 서술 100% 허용 규칙:
-   - [필수 규칙] 동아리 명칭은 특정 회사나 상품 브랜드, 방송 프로그램 이름, 고유명사나 상호, 행사 이름 등을 차용했더라도 100% 허용됩니다.
-   - [필수 규칙] 창의적 체험활동의 '동아리활동' 서술문에 '(동아리명)(이수시간)' (예: '(시네마틱)(16시간)', '(과학탐구반)(17시간)') 형태로 동아리 명칭과 이수시간을 괄호로 표기하는 것은 나이스(NEIS) 기본 디폴트 기재 서식입니다. 절대로 오류로 감지하거나 지적하지 마십시오.
-13. 페이지 나눔/분할로 인한 문장 미완결/잘림에 대한 단어 보완 및 문장 완성 절대 금지:
-   - [절대 금지] 문장이 마무리되지 않았거나 단어가 중간에 끊긴 것처럼 보이는 경우(예: '나', '아감.', '그', '함.', '있는' 등), **오류를 표기하기 전에 반드시 분할된 페이지에 해당되는 부분인지 먼저 판단**하십시오.
-   - [필수 규칙] 분할된 경우에는 **반드시 분할된 앞뒤 문맥을 머릿속으로 온전히 연결한 후에 판단**해야 하며, '문장이 중간에 잘려 있어 단어를 보완하여 완성해야 함', '앞선 문장에서 잘린 글자와 결합하여 수정함', '의미가 연결되도록 수정함' 같은 단어 지어내기(환각)나 문장 완성 제안을 절대로 내보내지 마십시오.
-   - [필수 규칙] 오직 연결된 온전한 문맥상에서 발견되는 명백한 맞춤법(철자 오탈자), 표준어 규정 위반, 기재금지어만 검출하십시오.
-14. 영문 약어 및 일반 명사 허용 규칙 (PPT, IT, AI 등):
-   - [필수 규칙] PPT, IT, AI, DNA, RNA, STEAM, SW, VR, AR, UCC, SNS, POPS, PD, TV, CEO, 도서명/저자명 영문 고유명사, 화폐/측정단위(kg, m, cm, %, pH, g 등)는 학교생활기록부 기재요령상 사용이 명시적으로 허용된 합법적 표기입니다. 절대로 영문/외국어 사용 오류로 검출하거나 한글 교정 대상으로 지적하지 마십시오.
-15. 날짜 및 기간 표기(2025.07.08. 등) 검출 금지 규칙:
-   - [필수 규칙] '2025.07.08.-2025.07.08.', '2026.07.09.~2026.07.14.', '5월 12일' 등 활동 날짜나 기간 표기는 지양 권고사항일 뿐 기재 금지 위반 오류나 오탈자가 아니므로, 절대로 오류로 검출하거나 삭제/수정을 제안하지 마십시오.
-16. 학기 표기('(1학기)', '(2학기)') 삭제/교정 지적 절대 금지 규칙:
-   - [절대 금지] '(1학기) 국어', '(2학기) 체육', '(1학기) 통합과학' 등 과목명 앞에 붙은 학기 정보('(1학기)', '(2학기)')는 나이스(NEIS) 1/2학기 분리 이수 표준 서식입니다.
-   - [필수 규칙] 절대로 '(1학기)', '(2학기)'를 제거하고 과목명만 기재하라는 식의 교정 제안이나 오류 검출을 내보내지 마십시오. '(1학기) 과목명'은 그 자체로 100% 온전한 정상 과목명입니다.
-17. 단어 임의 분할 및 미완성 단어 환각(Hallucination) 지적 금지:
-   - [필수 규칙] '과학적 이해'를 '과학적 이'로 자르거나, '알고리즘'을 '알'로 자르는 등 문맥상 온전한 단어의 첫 글자를 임의로 분할하여 '단어가 중간에 잘려 있다'고 판단하고 단어를 보완/복구하라는 오류는 전형적인 AI의 과잉 추론(오탐)입니다. 텍스트 원본에 실제로 존재하는 명백한 맞춤법/오탈자/기재금지어만 지적하십시오.
-18. 세특 세부 항목 명칭 규칙:
-   - [필수 규칙] 세특(교과 세부능력 및 특기사항)의 세부 항목(sub_category)에는 구체적인 이수과목명(예: '(1학기) 국어', '문학', '수학Ⅰ' 등) 또는 개인별 세특인 경우 '개세특'만 표기해야 합니다. 절대로 '세부능력및특기사항'이라는 테이블 헤더 명칭을 세부 항목명으로 표기하지 마십시오.
-19. 추가 허용 용어 목록 (절대 오류로 지적하지 말 것):
-   - 1인 1역, 1인1역
-   - 학교스포츠클럽, 스포츠 클럽, 교내리그, 교내 리그, 리그전, 방과후학교스포츠클럽, 헬스, 트레이닝, 보디빌더, 이단 뛰기, 피구, 축구, 배구, 탁구 등 체육 종목명
-   - 특정 학과/학문명 (예: ~과, ~학과, ~학부)
-   - 한글 문장 및 영문 문장 내 단어 사이 중간점(·)
-   - 수능, 대학수학능력시험, 대입수능, 스태그플레이션
-   - 공장, 시설, 롤러코스터
-   - 앱, 어플, 화상 공유, 바이브 코딩, 네트워크, 데이터 보안, 인공지능, 인터넷 포털 사이트, 아두이노, ESP32, 라즈베리파이, 디자인 씽킹
-   - 수리과학한마당, 루덴스 아트 페스티벌, 우문현답, 도전 골든벨, 체육 한마당, 체육한마당, 경제 골든 벨 등 구체적인 학교명이 없고 '행사'라는 말이 명기되지 않은 유사 학교 행사 명칭
-   - 특정 병원의 고유명이 아닌 병원의 종류/과목 (예: 중독 전문병원, 정형외과 등)
+1. [수정 필수] - 법적 지침 위반 및 명백한 맞춤법/오탈자/띄어쓰기 (가장 적극적으로 검출할 것):
+   - 맞춤법, 철자 오탈자, 어미 활용 오류: '도우는'->'돕는', '만듬'->'만듦', '되서'->'돼서', '안되'->'안 돼', '치뤄'->'치러', '바램'->'바람', '띔'->'띰', '맞추다/맞히다', '낳다/낫다' 등
+   - 띄어쓰기 오류: '할수있다'->'할 수 있다', '초등학교때'->'초등학교 때', '배운점'->'배운 점', '느낀점'->'느낀 점', '수업시간'->'수업 시간', '다양한활동'->'다양한 활동', '참여함으로써'->'참여함으로써' 등 모든 한국어 띄어쓰기 규정 위반
+   - 기재 금지어: 공인어학성적, 교외 수상, 논문/학회지/도서출판/특허, 사교육/학원명, 영재교육원, 부모 직업, 특정 대학명/기관명 등
+   - 입력 불가 브랜드/서비스명 대체: 네이버, 구글, 유튜브, 카카오톡, KTX, MBTI, 챗GPT, ZOOM 등 (매핑표 지정 표준 대체어로 교정 제안)
+   - 허용되지 않은 불필요 특수문자: 따옴표('"), 쉼표(,), 마침표(.), 느낌표(!), 물음표(?), 콜론(:), 괄호 외 불필요 특수기호(★, ◆, ~, @, #, $ 등)
+   - 창체 영역별 이수시간 0시간 (순회/위탁 등 특수 사유 서술문 학생 제외)
+
+2. [수정 권장] - 문맥 및 서술 완성도 개선:
+   - 주어-서술어 불일치, 지나치게 어색한 비문 또는 문장 구조 다듬기
+
+3. [검토 권장] - 학생 입장 서술 완화:
+   - 문장 맨 끝의 종결 어미가 '~느낌.', '~배움.', '~다짐함.' 처럼 교사 관찰이 아닌 학생 독백으로 끝나는 경우
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【예외 및 주의사항 (오탐 방지)】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- 도서명(책 제목) 및 저자명은 지침 2.1.4에 따라 전 영역 기재 가능하므로 절대 오류로 지적하지 마십시오.
+- PPT, IT, AI, DNA, RNA, STEAM, SW, VR, AR, UCC, SNS, POPS, PD, TV, CEO 등 표준 영문 약어는 학교생활기록부 기재요령상 허용된 합법적 표기입니다.
+- '(1학기)', '(2학기)' 학기 표기 및 동아리활동 '(동아리명)(이수시간)' 표기는 나이스(NEIS) 표준 서식이므로 절대 오류로 지적하지 마십시오.
+- 'E사', 'A사', 'B사' 등 알파벳 1글자 기업 블라인드 표기는 정당한 익명화 방식입니다.
+- 날짜/기간 표기('2025.07.08.' 등)는 지양 사항일 뿐 오류로 지적하지 마십시오.
+- 엑셀 페이지 나눔으로 단어가 끊긴 경우(예: '비교 분석하고', '신뢰감 있는') 쪼개진 글자를 임의로 삭제하거나 없는 단어를 환각으로 지어내지 마십시오.
+- 'reason(수정해야하는 이유나 근거)' 항목을 작성할 때는 조항 번호(예: '지침 2.1.4' 등) 없이 맞춤법, 띄어쓰기, 어미 교정 등 구체적인 이유만 작성하십시오.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【출력 형식 (JSON Schema)】
@@ -534,11 +506,11 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
       "student_name": "학생 이름",
       "category": "구분 (창체 / 세특 / 행발 중 하나)",
       "taken_grade": "이수학년 (예: 1학년, 2학년, 3학년)",
-      "sub_category": "세부 (창체는 '자율활동', '동아리활동', '진로활동' 중 1개만 명확히 표기, 세특은 구체적 과목명 또는 '개세특', 행특은 '행동특성')",
+      "sub_category": "세부 (창체는 '자율활동', '동아리활동', '진로활동' 중 1개, 세특은 구체적 과목명 또는 '개세특', 행특은 '행동특성')",
       "original_text": "오류가 발견된 수정 전 단어/문구",
       "suggested_text": "올바르게 교정된 수정 후 추천 문구",
-      "reason": "수정해야 하는 명확한 이유나 근거 (맞춤법, 띄어쓰기, 문법, 브랜드명 대체 사유 등 구체적 이유를 작성하되 지침 조항 번호는 절대 기재하지 말 것)",
-      "severity": "수정 필수, 수정 권장, 검토 권장 중 하나 (명백한 지침 위반/오탈자는 '수정 필수', 권고사항은 '수정 권장', 학생 관점/어미 등은 '검토 권장')"
+      "reason": "수정해야 하는 명확한 이유나 근거 (조항 번호 없이 구체적 이유 기술)",
+      "severity": "수정 필수, 수정 권장, 검토 권장 중 하나 (맞춤법/오탈자/띄어쓰기/금지어는 반드시 '수정 필수')"
     }}
   ]
 }}
@@ -554,8 +526,12 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
     session = create_http_session()
 
     for b_idx, batch_data in enumerate(batches):
+        st_num = safe_str(batch_data[0].get("학번", "")) if batch_data else ""
+        st_name = safe_str(batch_data[0].get("이름", "")) if batch_data else ""
+        student_label = f"{st_num} {st_name}".strip() if (st_num or st_name) else f"{b_idx+1}번 학생"
+
         if progress_callback:
-            progress_callback(b_idx + 1, total_batches)
+            progress_callback("start", b_idx, total_batches, student_label, None)
 
         data_payload_text = json.dumps(batch_data, ensure_ascii=False, indent=2)
         full_prompt = f"[학생별 생기부 기록 데이터]\n{data_payload_text}\n\n[검증 지시문]\n{prompt_instructions}"
@@ -567,15 +543,17 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
         for attempt in range(max_retries):
             try:
                 if provider.lower() == "gemini":
-                    model = model_name if model_name else "gemini-flash-lite-latest"
+                    model = model_name if model_name else "gemini-flash-latest"
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                     payload = {
                         "contents": [{"parts": [{"text": full_prompt}]}],
                         "generationConfig": {
-                            "responseMimeType": "application/json"
+                            "responseMimeType": "application/json",
+                            "temperature": 0.1,
+                            "maxOutputTokens": 8192
                         }
                     }
-                    res = session.post(url, json=payload, timeout=90)
+                    res = session.post(url, json=payload, timeout=120)
                     if res.status_code == 429:
                         time.sleep((attempt + 1) * 3.0)
                         continue
@@ -635,14 +613,19 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
                     raise req_err
                 time.sleep((attempt + 1) * 3.0)
 
+        batch_findings = []
         if success and raw_response_text:
             try:
                 clean_json = clean_json_response(raw_response_text)
                 parsed = json.loads(clean_json)
                 if isinstance(parsed, dict) and "results" in parsed:
-                    all_results.extend(parsed["results"])
+                    batch_findings = parsed["results"]
+                    all_results.extend(batch_findings)
             except Exception:
                 pass
+
+        if progress_callback:
+            progress_callback("finish", b_idx + 1, total_batches, student_label, batch_findings)
 
     if 'data_store' in st.session_state and 'hope_blank_records' in st.session_state['data_store']:
         for hb in st.session_state['data_store']['hope_blank_records']:
@@ -675,14 +658,6 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
         # 4. Skip if original_text is plain '희망분야' (without 공란 tag)
         if orig in ['희망분야', '희망 분야']:
             continue
-
-        # 5. Skip spacing-only modifications and page-split concatenation spacing errors
-        if orig.replace(" ", "").replace("\t", "").replace("\n", "") == sugg.replace(" ", "").replace("\t", "").replace("\n", ""):
-            continue
-
-        if '띄어쓰기' in reason or '페이지' in reason or '이어붙' in reason or '병합' in reason:
-            if orig.replace(" ", "") == sugg.replace(" ", "") or '공백' in reason:
-                continue
 
         # 6. Skip false errors on Dongari default format (동아리명)(이수시간)
         sub_c = str(res_item.get('sub_category', '')).strip()
@@ -2634,19 +2609,19 @@ def main():
             provider = st.selectbox("AI 프로바이더 선택", ["Gemini", "OpenAI", "Claude"])
             
             if provider == "Gemini":
-                gemini_model_options = ["Gemini Pro Latest", "Gemini Flash Latest", "Gemini Flash-Lite Latest"]
+                gemini_model_options = ["Gemini Flash Latest", "Gemini Pro Latest", "Gemini Flash-Lite Latest"]
                 gemini_model_selected = st.selectbox(
                     "Gemini 모델 선택",
                     gemini_model_options,
                     index=0,
-                    help="Gemini Pro Latest(심층 정밀 검증 디폴트), Gemini Flash Latest(빠른 검수), Gemini Flash-Lite Latest(경량/초고속) 중 선택하실 수 있습니다."
+                    help="Gemini Flash Latest(초고속 실무 검수 디폴트), Gemini Pro Latest(심층 정밀 검증), Gemini Flash-Lite Latest(경량/초고속) 중 선택하실 수 있습니다."
                 )
                 gemini_model_api_map = {
-                    "Gemini Pro Latest": "gemini-pro-latest",
                     "Gemini Flash Latest": "gemini-flash-latest",
+                    "Gemini Pro Latest": "gemini-pro-latest",
                     "Gemini Flash-Lite Latest": "gemini-flash-lite-latest"
                 }
-                model_name = gemini_model_api_map.get(gemini_model_selected, "gemini-pro-latest")
+                model_name = gemini_model_api_map.get(gemini_model_selected, "gemini-flash-latest")
             elif provider == "OpenAI":
                 model_name = "gpt-4o-mini"
             else:
@@ -2889,16 +2864,72 @@ def main():
                         progress_bar = st.progress(0)
                         status_text = st.empty()
                         
-                        def update_progress(current_b, total_b):
+                        st.markdown("<div style='height: 0.5rem;'></div>", unsafe_allow_html=True)
+                        st.markdown("##### 📋 실시간 학생별 검증 현황")
+                        log_container = st.empty()
+                        live_log_records = []
+
+                        def update_progress(event_type, current_b, total_b, st_label="학생", batch_items=None):
+                            if event_type == "start":
+                                pct = (current_b) / total_b
+                                progress_bar.progress(max(0.02, pct))
+                                status_text.info(f"AI 정밀 검사 진행 중... [{current_b + 1}/{total_b} 배치: **{st_label}** 분석 요청 중 ⏳]")
+                                return
+
+                            # event_type == "finish"
                             pct = current_b / total_b
                             progress_bar.progress(pct)
-                            status_text.info(f"AI 정밀 검사 진행 중... [{current_b}/{total_b} 배치 완료]")
+                            status_text.info(f"AI 정밀 검사 진행 중... [{current_b}/{total_b} 배치 완료 ({st_label})]")
+                            
+                            items_list = batch_items if batch_items is not None else []
+                            req_cnt = sum(1 for x in items_list if "필수" in str(x.get('severity', '')))
+                            rec_cnt = sum(1 for x in items_list if "권장" in str(x.get('severity', '')) and "검토" not in str(x.get('severity', '')))
+                            rev_cnt = sum(1 for x in items_list if "검토" in str(x.get('severity', '')))
+                            
+                            badge_parts = []
+                            if req_cnt > 0:
+                                badge_parts.append(f"<span style='background:#FEE2E2;color:#991B1B;padding:2px 8px;border-radius:6px;font-weight:700;font-size:0.8rem;'>🔴 수정 필수 {req_cnt}건</span>")
+                            if rec_cnt > 0:
+                                badge_parts.append(f"<span style='background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:6px;font-weight:700;font-size:0.8rem;'>🟡 수정 권장 {rec_cnt}건</span>")
+                            if rev_cnt > 0:
+                                badge_parts.append(f"<span style='background:#E0E7FF;color:#3730A3;padding:2px 8px;border-radius:6px;font-weight:700;font-size:0.8rem;'>🔵 검토 권장 {rev_cnt}건</span>")
+                            if not badge_parts:
+                                badge_parts.append("<span style='background:#ECFDF5;color:#065F46;padding:2px 8px;border-radius:6px;font-weight:700;font-size:0.8rem;'>✅ 이상 없음 (0건)</span>")
+                            
+                            badges_html = " ".join(badge_parts)
+                            
+                            items_summary = ""
+                            if items_list:
+                                sample_snippets = []
+                                for itm in items_list[:3]:
+                                    sub_s = itm.get('sub_category', '')
+                                    orig_s = itm.get('original_text', '')
+                                    sugg_s = itm.get('suggested_text', '')
+                                    sev_s = itm.get('severity', '수정 필수')
+                                    dot = "🔴" if "필수" in sev_s else ("🟡" if ("권장" in sev_s and "검토" not in sev_s) else "🔵")
+                                    sample_snippets.append(f"<div style='font-size:0.82rem;color:#475569;margin-left:0.5rem;margin-top:0.2rem;'>• {dot} <b>[{sub_s}]</b> {orig_s} ➔ <b>{sugg_s}</b> <span style='color:#64748B;'>({itm.get('reason','')})</span></div>")
+                                if len(items_list) > 3:
+                                    sample_snippets.append(f"<div style='font-size:0.78rem;color:#94A3B8;margin-left:0.5rem;margin-top:0.2rem;'>... 외 {len(items_list)-3}건</div>")
+                                items_summary = "".join(sample_snippets)
+                            
+                            card_html = (
+                                f"<div style='background:#FFFFFF;border:1px solid #E2E8F0;border-radius:10px;padding:0.7rem 1rem;margin-bottom:0.6rem;box-shadow:0 1px 3px rgba(0,0,0,0.03);'>"
+                                f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:0.2rem;'>"
+                                f"<div style='font-weight:700;color:#1E293B;font-size:0.92rem;'>[{current_b}/{total_b}] {st_label}</div>"
+                                f"<div>{badges_html}</div>"
+                                f"</div>"
+                                f"{items_summary}"
+                                f"</div>"
+                            )
+                            live_log_records.insert(0, card_html)
+                            all_cards_html = "".join(live_log_records)
+                            log_container.markdown(f"<div style='max-height:420px;overflow-y:auto;padding-right:4px;'>{all_cards_html}</div>", unsafe_allow_html=True)
 
                         try:
                             records_payload = prepare_records_for_llm(st.session_state['data_store'])
                             raw_findings = call_llm_api_for_audit(provider, api_key, model_name, records_payload, guideline_text, progress_callback=update_progress)
                             progress_bar.progress(1.0)
-                            status_text.empty()
+                            status_text.success("AI 정밀 검증이 성공적으로 완료되었습니다!")
                             
                             audit_rows = []
                             for item in raw_findings:
