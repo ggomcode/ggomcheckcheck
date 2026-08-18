@@ -365,7 +365,7 @@ st.markdown("""
 # ==============================================================================
 def load_guideline_content() -> str:
     """
-    data/ 폴더 내의 '학교생활기록부_기재_및_검증_지침.md', 'xls 파일 형식.md', '세부 규칙.md' 지침을 실시간으로 읽어옵니다.
+    data/ 폴더 내의 '학교생활기록부_기재_및_검증_지침.md', '세부 규칙.md' 지침을 실시간으로 읽어옵니다.
     분석 실행 시 항상 최신 파일 내용을 반영합니다.
     """
     contents = []
@@ -385,24 +385,7 @@ def load_guideline_content() -> str:
             except Exception as e:
                 pass
 
-    # 2. XLS 파일 구조 및 파싱 규격 파일
-    xls_candidates = [
-        "data/xls 파일 형식.md",
-        "data/xls_파일_형식.md",
-        "data/xls파일형식.md"
-    ]
-    for xp in xls_candidates:
-        if os.path.exists(xp):
-            try:
-                with open(xp, "r", encoding="utf-8") as f:
-                    xls_text = f.read().strip()
-                    if xls_text:
-                        contents.append(f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n【NEIS XLS 파일 구조 및 파싱 규격 지침】\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{xls_text}")
-                break
-            except Exception as e:
-                pass
-
-    # 3. 사용자 세부 규칙 파일 (data/세부 규칙.md 등)
+    # 2. 사용자 세부 규칙 파일 (data/세부 규칙.md 등 - 최우선 적용 지침)
     detail_candidates = [
         "data/세부 규칙.md",
         "data/세부_규칙.md",
@@ -425,6 +408,87 @@ def load_guideline_content() -> str:
 # ==============================================================================
 # 2. LLM AI 분석 엔진 (Gemini / OpenAI / Claude API 파이프라인)
 # ==============================================================================
+def fetch_available_gemini_models(api_key: str):
+    """
+    Google AI Studio API를 통해 사용자 키에서 지원 가능한 Gemini 모델 목록을 동적으로 전수 조회합니다.
+    pageSize=100 및 페이지네이션을 지원하여 모든 최신 모델을 누락 없이 가져옵니다.
+    """
+    if not api_key or len(api_key.strip()) < 10:
+        return []
+    try:
+        clean_key = api_key.strip()
+        models = []
+        page_token = None
+        
+        while True:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models?pageSize=100&key={clean_key}"
+            if page_token:
+                url += f"&pageToken={page_token}"
+            
+            res = requests.get(url, timeout=8)
+            if res.status_code != 200:
+                break
+            
+            data = res.json()
+            raw_models = data.get("models", [])
+            for m in raw_models:
+                methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" in methods:
+                    m_id = m.get("name", "").replace("models/", "")
+                    # 오직 순수 Gemini 모델만 필터링 (gemma, learnlm, bison 등 비-Gemini 모델 및 임베딩 제외)
+                    if not m_id.lower().startswith("gemini"):
+                        continue
+                    if any(skip in m_id.lower() for skip in ["embedding", "aqa", "imagen", "whisper", "tts"]):
+                        continue
+                    
+                    display = m.get("displayName", m_id)
+                    
+                    score = 50
+                    if "2.5-flash" in m_id.lower():
+                        score = 110
+                    elif "3.1-pro" in m_id.lower():
+                        score = 105
+                    elif "1.5-pro-002" in m_id.lower():
+                        score = 100
+                    elif "1.5-pro" in m_id.lower():
+                        score = 95
+                    elif "2.0-flash" in m_id.lower():
+                        score = 90
+                    elif "1.5-flash" in m_id.lower():
+                        score = 85
+                    elif "2.0-pro" in m_id.lower():
+                        score = 80
+                    elif "pro" in m_id.lower():
+                        score = 75
+                    elif "flash" in m_id.lower():
+                        score = 70
+
+                    models.append({
+                        "id": m_id,
+                        "display": f"{display} ({m_id})",
+                        "score": score
+                    })
+            
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+
+        # 중복 제거 및 점수 순 정렬
+        seen_ids = set()
+        unique_models = []
+        for m in sorted(models, key=lambda x: x["score"], reverse=True):
+            if m["id"] not in seen_ids:
+                seen_ids.add(m["id"])
+                unique_models.append(m)
+
+        print(f"[DEBUG models] Fetched {len(unique_models)} dynamic models from Google API: {[m['id'] for m in unique_models]}")
+        return unique_models
+    except Exception as e:
+        print(f"[DEBUG models] Error fetching models: {e}")
+        pass
+    return []
+
+
 def clean_json_response(raw_text: str) -> str:
     """
     AI 응답에서 마크다운 코드블록(```json ... ```)을 정제합니다.
@@ -439,30 +503,111 @@ def clean_json_response(raw_text: str) -> str:
     return clean
 
 
+def robust_json_parse(raw_text: str):
+    """
+    AI 응답을 다양한 손상/미완결/마크다운 형식에서도 결함 없이 JSON 데이터로 복원합니다.
+    """
+    if not raw_text:
+        return None
+    clean = clean_json_response(raw_text)
+    
+    # 1. 표준 json.loads 시도
+    try:
+        return json.loads(clean)
+    except Exception:
+        pass
+
+    # 2. 가장 바깥쪽 { ... } 또는 [ ... ] 추출
+    m = re.search(r'(\{[\s\S]*\}|\[[\s\S]*\])', clean)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            pass
+
+    # 3. 미완결 잘림 자동 완성 시도 (누락된 닫는 괄호 보완)
+    for close_suffix in ['\n]}', '\n}', ']}', '}']:
+        try:
+            return json.loads(clean + close_suffix)
+        except Exception:
+            pass
+
+    # 4. 정규식을 통한 개별 검출 객체 단위 전수 추출 (가장 강력한 Fallback)
+    item_pattern = re.compile(r'\{[^{}]*(?:student_id|original_text|수정전)[^{}]*\}', re.DOTALL)
+    extracted_items = []
+    for match in item_pattern.finditer(clean):
+        raw_item = match.group(0)
+        try:
+            extracted_items.append(json.loads(raw_item))
+        except Exception:
+            try:
+                fixed_item = re.sub(r',\s*\}', '}', raw_item)
+                extracted_items.append(json.loads(fixed_item))
+            except Exception:
+                pass
+    if extracted_items:
+        return {"results": extracted_items}
+
+    return None
+
+
 def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records_data: list, guideline_text: str, progress_callback=None) -> list:
     """
     생기부 기록 데이터를 적정 배치(Batch)로 나누어 API 쿼터(250k 토큰 제한)를 초과하지 않도록 분할 호출합니다.
-    429 Rate Limit/Quota 초과 오류 발생 시 자동 지연 재시도(Exponential Retry)를 수행합니다.
+    429 Rate Limit/503 Service Unavailable 오류 발생 시 자동 지연 재시도(Exponential Retry)를 수행합니다.
     """
     import time
     if not api_key:
         raise ValueError("API Key가 설정되지 않았습니다. 사이드바에서 AI API Key를 입력해 주세요.")
 
-    # 학생(학번+이름) 단위로 그룹화하여 학생 1명당 1개 배치로 정밀 분석
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # 스마트 배치 엔진 - Rate Limit 친화적 설계
+    # Gemini 무료 티어: 15 RPM → 최소 4초 간격 필요
+    # 배치 크기를 키워 API 호출 수를 최소화하되, 정확도가 유지되는 범위 내에서 조절
     from collections import defaultdict
     student_grouped = defaultdict(list)
     for r in records_data:
         st_key = (safe_str(r.get("학번", "")), safe_str(r.get("이름", "")))
         student_grouped[st_key].append(r)
 
-    batches = list(student_grouped.values()) if student_grouped else [records_data]
+    batches = []
+    target_chars_budget = 12000   # 12,000자 (A4 약 4~5장) - 호출 수 최소화
+    max_items_per_chunk = 30      # 과목 30개까지 한 배치
+
+    for st_key, recs in student_grouped.items():
+        total_chars = sum(len(x.get("기록텍스트", "")) for x in recs)
+        
+        if total_chars <= target_chars_budget and len(recs) <= max_items_per_chunk:
+            # 학생 1명 통째 (창체/행특/일반 세특)
+            batches.append(recs)
+        else:
+            # 대용량: 이수학년별 분할
+            grade_sub_grouped = defaultdict(list)
+            for r in recs:
+                g_key = safe_str(r.get("이수학년", ""))
+                grade_sub_grouped[g_key].append(r)
+            
+            for g_key, g_recs in grade_sub_grouped.items():
+                g_chars = sum(len(x.get("기록텍스트", "")) for x in g_recs)
+                if g_chars <= target_chars_budget and len(g_recs) <= max_items_per_chunk:
+                    batches.append(g_recs)
+                else:
+                    for i in range(0, len(g_recs), max_items_per_chunk):
+                        batches.append(g_recs[i:i + max_items_per_chunk])
+
+    if not batches and records_data:
+        batches = [records_data]
+
     total_batches = len(batches)
-    
     all_results = []
+    completed_batches = 0
+    print(f"[INFO] Total batches to process: {total_batches} (students: {len(student_grouped)})")
 
     prompt_instructions = f"""
-당신은 대한민국 고등학교 학교생활기록부(창체, 세특, 행특) 오탈자 및 기재지침 검증 최고 전문가 AI입니다.
-전달된 학생의 모든 활동 및 과목 서술문을 단어 하나하나 전수 정밀 감사하여, 발견된 모든 오류를 빠짐없이 'results' 목록에 담아 반환하십시오.
+당신은 대한민국 교육부 학교생활기록부(창체, 세특, 행특) 오탈자 교정 및 기재지침 검증 최고 권위의 감사 전문가 AI입니다.
+전달된 학생의 모든 활동 및 과목별 서술문을 글자 하나, 단어 하나 단위로 전수 정밀 감사하여, 발견된 모든 오탈자, 맞춤법 오류, 띄어쓰기 오류, 기재금지어를 빠짐없이 'results' 목록에 담아 반환하십시오.
 
 [참고 지침 문서]
 {guideline_text}
@@ -470,19 +615,54 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【검증 핵심 대상 및 등급(severity) 기준】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. [수정 필수] - 법적 지침 위반 및 명백한 맞춤법/오탈자/띄어쓰기 (가장 적극적으로 검출할 것):
-   - 맞춤법, 철자 오탈자, 어미 활용 오류: '도우는'->'돕는', '만듬'->'만듦', '되서'->'돼서', '안되'->'안 돼', '치뤄'->'치러', '바램'->'바람', '띔'->'띰', '맞추다/맞히다', '낳다/낫다' 등
-   - 띄어쓰기 오류: '할수있다'->'할 수 있다', '초등학교때'->'초등학교 때', '배운점'->'배운 점', '느낀점'->'느낀 점', '수업시간'->'수업 시간', '다양한활동'->'다양한 활동', '참여함으로써'->'참여함으로써' 등 모든 한국어 띄어쓰기 규정 위반
-   - 기재 금지어: 공인어학성적, 교외 수상, 논문/학회지/도서출판/특허, 사교육/학원명, 영재교육원, 부모 직업, 특정 대학명/기관명 등
-   - 입력 불가 브랜드/서비스명 대체: 네이버, 구글, 유튜브, 카카오톡, KTX, MBTI, 챗GPT, ZOOM 등 (매핑표 지정 표준 대체어로 교정 제안)
-   - 허용되지 않은 불필요 특수문자: 따옴표('"), 쉼표(,), 마침표(.), 느낌표(!), 물음표(?), 콜론(:), 괄호 외 불필요 특수기호(★, ◆, ~, @, #, $ 등)
+1. [수정 필수] - 법적 지침 위반, 맞춤법/오탈자/띄어쓰기/조사/특수문자 오류 (가장 엄격하고 적극적으로 검출할 것):
+   - 조사 호응 및 조사 선택 오류 (받침 유무 및 문맥 호응):
+     * 받침 없는 체언 뒤 조사 '을' 오용: '카드뉴스을' ➔ '카드뉴스를', '생산 인구을' ➔ '생산 인구를', '갯수을' ➔ '개수를'
+     * 문맥상 잘못된 조사 사용: '목민심서를 나타난' ➔ '목민심서에 나타난', '역사적 배경으로 기반으로' ➔ '역사적 배경을 기반으로'
+     * 조사 오탈자 / 불필요한 끝조사: '활동체 참여' ➔ '활동에 참여', '명극즉 과찰이다의' ➔ '명즉즉 과찰이다'
+   - 자판 오타, 철자 오탈자, 음절 오기입, 단어 중복:
+     * 자판 오타 / 자음모음 연타: '주의 집중력읖' ➔ '주의 집중력을', '장ㄹ주행' ➔ '자율주행', '학업 성취르르' ➔ '학업 성취를', '방았음' ➔ '받았음', '빗방물' ➔ '빗방울', '찾기위애' ➔ '찾기 위해'
+     * 음절/철자 오탈자: '합습' ➔ '학습', '편근' ➔ '편견', '실생황' ➔ '실생활', '색체' ➔ '색채', '해결해기' ➔ '해결하기', '구체화려' ➔ '구체화하려', '제작하하는데' ➔ '제작하는 데', '젠더 간 갈들을' ➔ '젠더 간 갈등을'
+     * 단어 중복 기재: '유통 유통망' ➔ '유통망'
+   - 맞춤법 및 피동/사동/어미/사이시옷 오류:
+     * '높힘.' ➔ '높임.', '신뢰도를 높혔음.' ➔ '신뢰도를 높였음.'
+     * '영상이였으며' ➔ '영상이었으며'
+     * '갯수' ➔ '개수'
+     * '띔' ➔ '띰', '안되' ➔ '안 돼', '되서' ➔ '돼서', '치뤄' ➔ '치러', '바램' ➔ '바람', '만듬' ➔ '만듦', '도우는' ➔ '돕는', '맞추다'/'맞히다', '낳다'/'낫다'
+   - 문맥상 부자연스러운 단어 오용 / 동음이의어 오탈자:
+     * '정서함.' ➔ '작성함.' (문맥상 글이나 문장을 지어 기록한다는 의미의 오탈자)
+     * '캐슬을' ➔ '캔슬을' (캔슬 컬처 오타)
+     * '정병 대상 인구수' ➔ '병역 대상 인구수' (군 복무 대상 인구)
+     * '제풀이' ➔ '풀이'
+   - 불필요하거나 잘못 삽입된 특수문자/공백/가운뎃점:
+     * '기사를·분석해' ➔ '기사를 분석해' (단어/조사 사이에 불필요하게 삽입된 가운뎃점(·) 제거)
+     * '생성형 , 인공지능의' ➔ '생성형 인공지능의' (쉼표 앞 불필요한 공백 제거)
+     * 따옴표('"), 쉼표(,), 마침표(.), 느낌표(!), 물음표(?), 콜론(:), 괄호 외 불필요 특수기호(★, ◆, ~, @, #, $ 등) 제거
+   - 띄어쓰기 규정 위반:
+     * '할수있다' ➔ '할 수 있다', '찾기위해' ➔ '찾기 위해', '초등학교때' ➔ '초등학교 때', '배운점' ➔ '배운 점', '느낀점' ➔ '느낀 점', '수업시간' ➔ '수업 시간', '다양한활동' ➔ '다양한 활동' 등 모든 한국어 띄어쓰기 규정 위반
+   - 법적 기재 금지어 및 미허용 브랜드명/약어:
+     * 특정 상호나 브랜드명 노출('프OOOO, 봄O' 등) ➔ 익명화 처리 또는 일반 명사로 기재
+     * 입력 불가 약어/용어: 'OTT' ➔ '동영상 플랫폼' 등 매핑표 지정 대체어로 교정 제안
+     * 공인어학성적, 교외 수상, 논문/학회지/도서출판/특허, 사교육/학원명, 영재교육원, 부모 직업, 특정 대학명/기관명 등
    - 창체 영역별 이수시간 0시간 (순회/위탁 등 특수 사유 서술문 학생 제외)
 
-2. [수정 권장] - 문맥 및 서술 완성도 개선:
+2. [수정 권장] - 문맥 및 서술 완성도 개선, 표준 외래어 표기:
+   - 표준 외래어 표기법 및 권장 용어:
+     * '프리젠테이션' ➔ '프레젠테이션'
+     * '어플' ➔ '앱'
+   - 문맥에 맞는 적절한 어휘 및 띄어쓰기 개선:
+     * '외성적' ➔ '외형적'
+     * '서본결' ➔ '서결론'
+     * '냉동 선생산' ➔ '냉동 선행 생산'
    - 주어-서술어 불일치, 지나치게 어색한 비문 또는 문장 구조 다듬기
 
-3. [검토 권장] - 학생 입장 서술 완화:
-   - 문장 맨 끝의 종결 어미가 '~느낌.', '~배움.', '~다짐함.' 처럼 교사 관찰이 아닌 학생 독백으로 끝나는 경우
+3. [검토 권장] - 서술 관점 개선 및 소극적 서술 완화:
+   - 학생의 주관적 추측/독백 서술 ➔ 교사 관찰 중심 전환:
+     * '~기대해 봄.', '~느낌.', '~배움.', '~다짐함.' ➔ '~에 대한 관심이 높음.', '~모습을 보임.'
+   - 소극적 서술 완화:
+     * '주제탐구 활동에 참여하려고 노력함.' ➔ '주제 탐구 활동에 적극적으로 참여함.' / '주제 탐구 활동에 참여함.'
+   - 보다 학술적이고 객관적인 용어로 표현 개선:
+     * '인공지능 그림' ➔ '생성형 인공지능 활용 이미지'
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【예외 및 주의사항 (오탐 방지)】
@@ -516,35 +696,71 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 }}
 """
 
-    def create_http_session():
-        s = requests.Session()
-        s.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        })
-        return s
+    try:
+        from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
+        cur_ctx = get_script_run_ctx()
+    except Exception:
+        cur_ctx = None
 
-    session = create_http_session()
+    # Rate Limit 친화적 순차 처리 (Gemini 무료 티어: 15 RPM)
+    import threading
+    _api_lock = threading.Lock()
+    _last_call_time = [0.0]  # mutable for closure
+    MIN_CALL_INTERVAL = 4.5  # 초 (15 RPM = 4초 간격 + 여유 0.5초)
 
-    for b_idx, batch_data in enumerate(batches):
+    def rate_limited_api_call(b_idx, batch_data):
+        """Rate limit을 준수하며 API를 호출하는 함수"""
         st_num = safe_str(batch_data[0].get("학번", "")) if batch_data else ""
         st_name = safe_str(batch_data[0].get("이름", "")) if batch_data else ""
-        student_label = f"{st_num} {st_name}".strip() if (st_num or st_name) else f"{b_idx+1}번 학생"
+        grades = list(set(safe_str(x.get("이수학년", "")) for x in batch_data if x.get("이수학년")))
+        grade_tag = f" [{grades[0]}]" if len(grades) == 1 else ""
+        student_label = f"{st_num} {st_name}{grade_tag}".strip() if (st_num or st_name) else f"{b_idx+1}번 배치"
 
-        if progress_callback:
-            progress_callback("start", b_idx, total_batches, student_label, None)
+        mini_payload = []
+        for r in batch_data:
+            mini_payload.append({
+                "student_id": safe_str(r.get("학번", "")),
+                "student_name": safe_str(r.get("이름", "")),
+                "category": safe_str(r.get("구분", "")),
+                "taken_grade": safe_str(r.get("이수학년", "")),
+                "sub_category": safe_str(r.get("세부", "")),
+                "text": safe_str(r.get("기록텍스트", ""))
+            })
+        data_payload_text = json.dumps(mini_payload, ensure_ascii=False, indent=2)
+        full_prompt = f"{prompt_instructions}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n【검증할 학생 서술문 데이터】\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{data_payload_text}"
+        print(f"[DEBUG batch#{b_idx}] student={student_label}, items={len(mini_payload)}, prompt_len={len(full_prompt)}")
 
-        data_payload_text = json.dumps(batch_data, ensure_ascii=False, indent=2)
-        full_prompt = f"[학생별 생기부 기록 데이터]\n{data_payload_text}\n\n[검증 지시문]\n{prompt_instructions}"
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        })
 
-        max_retries = 5
+        max_retries = 8
         success = False
         raw_response_text = ""
 
         for attempt in range(max_retries):
+            # Rate Limit 준수: 마지막 호출로부터 최소 MIN_CALL_INTERVAL초 대기
+            with _api_lock:
+                elapsed = time.time() - _last_call_time[0]
+                if elapsed < MIN_CALL_INTERVAL:
+                    wait = MIN_CALL_INTERVAL - elapsed
+                    print(f"[DEBUG batch#{b_idx}] Rate limit wait: {wait:.1f}s")
+                    time.sleep(wait)
+                _last_call_time[0] = time.time()
+
             try:
                 if provider.lower() == "gemini":
-                    model = model_name if model_name else "gemini-flash-latest"
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                    base_model = model_name if model_name else "gemini-2.0-flash"
+                    # 503/429 발생 시 다른 안정적 엔드포인트로 자동 폴백 전환
+                    if attempt >= 2:
+                        fallback_list = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash", "gemini-flash-latest"]
+                        current_model = fallback_list[(attempt - 2) % len(fallback_list)]
+                        print(f"[DEBUG batch#{b_idx}] 503/429 Fallback: Switching model to '{current_model}'")
+                    else:
+                        current_model = base_model
+
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
                     payload = {
                         "contents": [{"parts": [{"text": full_prompt}]}],
                         "generationConfig": {
@@ -554,13 +770,31 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
                         }
                     }
                     res = session.post(url, json=payload, timeout=120)
+                    print(f"[DEBUG batch#{b_idx}] Gemini ({current_model}) HTTP {res.status_code} (attempt {attempt+1})")
+                    if res.status_code == 404:
+                        # 404(모델 지원 종료/미존재) 발생 시 즉시 유효한 최신 모델로 전환
+                        print(f"[DEBUG batch#{b_idx}] Model '{current_model}' 404 NOT_FOUND. Fallback to alternative model.")
+                        fallback_list = ["gemini-3.1-pro-preview", "gemini-1.5-pro", "gemini-2.0-flash", "gemini-1.5-flash"]
+                        current_model = fallback_list[attempt % len(fallback_list)]
+                        time.sleep(1.0)
+                        continue
                     if res.status_code == 429:
-                        time.sleep((attempt + 1) * 3.0)
+                        # 429 전용 장기 대기: 15초, 30초, 45초, 60초...
+                        backoff = min(15 * (attempt + 1), 90)
+                        print(f"[DEBUG batch#{b_idx}] 429 Rate Limit! Backing off {backoff}s...")
+                        time.sleep(backoff)
+                        continue
+                    if res.status_code in [500, 502, 503, 504]:
+                        backoff = (attempt + 1) * 5
+                        print(f"[DEBUG batch#{b_idx}] Server error {res.status_code}, backing off {backoff}s...")
+                        time.sleep(backoff)
                         continue
                     if res.status_code != 200:
+                        print(f"[DEBUG batch#{b_idx}] ERROR: {res.text[:500]}")
                         raise RuntimeError(f"Gemini API 호출 실패 ({res.status_code}): {res.text}")
                     res_json = res.json()
                     raw_response_text = res_json['candidates'][0]['content']['parts'][0]['text']
+                    print(f"[DEBUG batch#{b_idx}] SUCCESS! response_len={len(raw_response_text)}, preview={raw_response_text[:150]}")
                     success = True
                     break
 
@@ -576,9 +810,13 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
                         ],
                         "response_format": {"type": "json_object"}
                     }
-                    res = session.post(url, headers=headers, json=payload, timeout=90)
+                    res = session.post(url, headers=headers, json=payload, timeout=120)
                     if res.status_code == 429:
-                        time.sleep((attempt + 1) * 3.0)
+                        backoff = min(15 * (attempt + 1), 90)
+                        time.sleep(backoff)
+                        continue
+                    if res.status_code in [500, 502, 503, 504]:
+                        time.sleep((attempt + 1) * 5)
                         continue
                     if res.status_code != 200:
                         raise RuntimeError(f"OpenAI API 호출 실패 ({res.status_code}): {res.text}")
@@ -596,9 +834,13 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
                         "system": "Return strictly a JSON object with 'results' array as requested.",
                         "messages": [{"role": "user", "content": full_prompt}]
                     }
-                    res = session.post(url, headers=headers, json=payload, timeout=90)
+                    res = session.post(url, headers=headers, json=payload, timeout=120)
                     if res.status_code == 429:
-                        time.sleep((attempt + 1) * 3.0)
+                        backoff = min(15 * (attempt + 1), 90)
+                        time.sleep(backoff)
+                        continue
+                    if res.status_code in [500, 502, 503, 504]:
+                        time.sleep((attempt + 1) * 5)
                         continue
                     if res.status_code != 200:
                         raise RuntimeError(f"Claude API 호출 실패 ({res.status_code}): {res.text}")
@@ -608,24 +850,59 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
                     break
 
             except Exception as req_err:
-                session = create_http_session()
                 if attempt == max_retries - 1:
+                    print(f"[DEBUG batch#{b_idx}] FINAL FAILURE after {max_retries} attempts: {req_err}")
                     raise req_err
-                time.sleep((attempt + 1) * 3.0)
+                time.sleep((attempt + 1) * 5)
 
         batch_findings = []
         if success and raw_response_text:
             try:
-                clean_json = clean_json_response(raw_response_text)
-                parsed = json.loads(clean_json)
-                if isinstance(parsed, dict) and "results" in parsed:
-                    batch_findings = parsed["results"]
-                    all_results.extend(batch_findings)
-            except Exception:
-                pass
+                parsed = robust_json_parse(raw_response_text)
+                if parsed is None:
+                    print(f"[DEBUG batch#{b_idx}] parsed is None! clean_json preview: {clean_json_response(raw_response_text)[:300]}")
+                elif isinstance(parsed, list):
+                    batch_findings = parsed
+                    print(f"[DEBUG batch#{b_idx}] parsed as list, findings={len(batch_findings)}")
+                elif isinstance(parsed, dict):
+                    print(f"[DEBUG batch#{b_idx}] parsed as dict, keys={list(parsed.keys())}")
+                    if "results" in parsed and isinstance(parsed["results"], list):
+                        batch_findings = parsed["results"]
+                    elif "findings" in parsed and isinstance(parsed["findings"], list):
+                        batch_findings = parsed["findings"]
+                    elif "errors" in parsed and isinstance(parsed["errors"], list):
+                        batch_findings = parsed["errors"]
+                    elif "data" in parsed and isinstance(parsed["data"], list):
+                        batch_findings = parsed["data"]
+                    else:
+                        for v in parsed.values():
+                            if isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict):
+                                batch_findings = v
+                                break
+                    print(f"[DEBUG batch#{b_idx}] final findings={len(batch_findings)}")
+            except Exception as outer_e:
+                print(f"[DEBUG batch#{b_idx}] OUTER EXCEPTION: {outer_e}")
+        else:
+            print(f"[DEBUG batch#{b_idx}] SKIPPED: success={success}, raw_len={len(raw_response_text)}")
 
+        return (b_idx, student_label, batch_findings)
+
+    # 순차 처리 (Rate Limit 준수) - 1개씩 순서대로 호출하되 API 간격을 자동 조절
+    for idx, b in enumerate(batches):
         if progress_callback:
-            progress_callback("finish", b_idx + 1, total_batches, student_label, batch_findings)
+            st_num = safe_str(b[0].get("학번", "")) if b else ""
+            st_name = safe_str(b[0].get("이름", "")) if b else ""
+            grades = list(set(safe_str(x.get("이수학년", "")) for x in b if x.get("이수학년")))
+            grade_tag = f" [{grades[0]}]" if len(grades) == 1 else ""
+            lbl = f"{st_num} {st_name}{grade_tag}".strip()
+            progress_callback("start", idx, total_batches, lbl)
+
+        b_idx, student_label, batch_findings = rate_limited_api_call(idx, b)
+        completed_batches += 1
+        if batch_findings:
+            all_results.extend(batch_findings)
+        if progress_callback:
+            progress_callback("finish", completed_batches, total_batches, student_label, batch_findings)
 
     if 'data_store' in st.session_state and 'hope_blank_records' in st.session_state['data_store']:
         for hb in st.session_state['data_store']['hope_blank_records']:
@@ -667,14 +944,11 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
             if re.match(r'^\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\)', orig):
                 continue
 
-        # 7. Skip false errors on page-split incomplete sentences / unfinished endings / fragment words (림., 고, 함, 시 등)
+        # 7. Skip false errors on page-split fragment syllables (림., 고, 함, 시, 활 등)
         if any(kw in reason for kw in ['종결되지', '도중에 끊', '어미가 완성', '문맥을 보완', '내용을 보완', '미완성', '완결되지', '따옴표로 끝', '데이터 분할', '데이터 병합', '잘려 나간']):
             continue
 
-        if orig in ['림.', '고', '함', '시', '활', '림', '알', '함.']:
-            continue
-
-        if len(orig) <= 2 and any(kw in reason for kw in ['잘려', '분할', '병합', '유실', '어미', '불완전', '삭제', '복구']):
+        if orig in ['림.', '고', '함', '시', '활', '림', '알', '함.'] and any(kw in reason for kw in ['잘려', '분할', '유실', '불완전']):
             continue
 
         # 8. Skip allowed English acronyms (PPT, IT, AI, DNA, RNA, STEAM, SW, VR, AR, UCC, SNS, POPS, PD, TV, CEO 등)
@@ -2603,69 +2877,77 @@ def main():
         # 2. 상단 구분선
         st.markdown("---")
 
-        # 3. AI API 설정
+        # 3. AI API 설정 (Google Gemini 전용)
         st.markdown("<div style='height: 1.5rem;'></div>", unsafe_allow_html=True)
-        with st.expander("AI API 설정", expanded=False):
-            provider = st.selectbox("AI 프로바이더 선택", ["Gemini", "OpenAI", "Claude"])
-            
-            if provider == "Gemini":
-                gemini_model_options = ["Gemini Flash Latest", "Gemini Pro Latest", "Gemini Flash-Lite Latest"]
-                gemini_model_selected = st.selectbox(
-                    "Gemini 모델 선택",
-                    gemini_model_options,
-                    index=0,
-                    help="Gemini Flash Latest(초고속 실무 검수 디폴트), Gemini Pro Latest(심층 정밀 검증), Gemini Flash-Lite Latest(경량/초고속) 중 선택하실 수 있습니다."
-                )
-                gemini_model_api_map = {
-                    "Gemini Flash Latest": "gemini-flash-latest",
-                    "Gemini Pro Latest": "gemini-pro-latest",
-                    "Gemini Flash-Lite Latest": "gemini-flash-lite-latest"
-                }
-                model_name = gemini_model_api_map.get(gemini_model_selected, "gemini-flash-latest")
-            elif provider == "OpenAI":
-                model_name = "gpt-4o-mini"
-            else:
-                model_name = "claude-3-5-haiku-20241022"
-
-            key_input_id = f"api_key_input_{provider}"
+        with st.expander("AI API 설정 (Gemini)", expanded=False):
+            provider = "Gemini"
+            key_input_id = "api_key_input_Gemini"
             if key_input_id not in st.session_state:
-                st.session_state[key_input_id] = st.session_state['api_key_store'].get(provider, "")
+                st.session_state[key_input_id] = st.session_state['api_key_store'].get("Gemini", "")
 
-            st.markdown(f'<div style="color: #B91C1C; font-weight: 700; font-size: 0.88rem; margin-bottom: 0.3rem;">{provider} API Key 입력</div>', unsafe_allow_html=True)
+            st.markdown('<div style="color: #B91C1C; font-weight: 700; font-size: 0.88rem; margin-bottom: 0.3rem;">Gemini API Key 입력</div>', unsafe_allow_html=True)
             api_key = st.text_input(
-                f"{provider} API Key 입력",
+                "Gemini API Key 입력",
                 label_visibility="collapsed",
                 type="password",
                 key=key_input_id,
-                help="Google AI Studio / OpenAI / Anthropic에서 발급받은 개인 API Key를 입력해 주세요."
+                help="Google AI Studio에서 발급받은 개인 Gemini API Key를 입력해 주세요."
             )
-            st.session_state['api_key_store'][provider] = api_key
+            st.session_state['api_key_store']["Gemini"] = api_key
+            
+            # API 키로 Google AI Studio에서 지원 가능한 Gemini 모델 실시간 동적 조회
+            fetched_models = fetch_available_gemini_models(api_key) if api_key else []
+            
+            gemini_model_api_map = {}
+            if fetched_models:
+                for fm in fetched_models:
+                    gemini_model_api_map[fm["display"]] = fm["id"]
+                
+                gemini_model_options = list(gemini_model_api_map.keys())
+                default_idx = 0
+                for i, opt in enumerate(gemini_model_options):
+                    if "2.5-flash" in opt.lower():
+                        default_idx = i
+                        break
+                    elif "3.1-pro" in opt.lower():
+                        default_idx = i
+                    elif "1.5-pro" in opt.lower():
+                        default_idx = i
+            else:
+                # API 키 입력 전 또는 기본 정적 선택지
+                gemini_model_api_map = {
+                    "Gemini 2.5 Flash (gemini-2.5-flash - 실시간 검증 완료/초고속) 🚀🌟": "gemini-2.5-flash",
+                    "Gemini 3.1 Pro Preview (gemini-3.1-pro-preview - 최신 차세대 Pro) 🌟": "gemini-3.1-pro-preview",
+                    "Gemini 1.5 Pro (gemini-1.5-pro - 검증된 최고 안정 Pro)": "gemini-1.5-pro",
+                    "Gemini 2.0 Flash (gemini-2.0-flash - 초고속 Flash) ⚡": "gemini-2.0-flash",
+                    "Gemini 1.5 Flash (gemini-1.5-flash - 가장 안정적) ⚡": "gemini-1.5-flash",
+                    "Gemini 1.0 Pro (gemini-1.0-pro - 구버전 Pro)": "gemini-1.0-pro",
+                    "Gemini Flash Latest (gemini-flash-latest)": "gemini-flash-latest",
+                    "Gemini Pro Latest (gemini-pro-latest)": "gemini-pro-latest"
+                }
+                gemini_model_options = list(gemini_model_api_map.keys())
+                default_idx = 0
 
-            if st.button("API Key 삭제", key=f"btn_del_key_{provider}", help="입력한 API Key만 즉시 삭제하고 초기화합니다.", use_container_width=True):
-                st.session_state['api_key_store'][provider] = ""
+            gemini_model_selected = st.selectbox(
+                "Gemini 모델 선택",
+                gemini_model_options,
+                index=default_idx,
+                help="Google AI Studio API에서 제공하는 텍스트 생성 Gemini 모델 목록입니다."
+            )
+            model_name = gemini_model_api_map.get(gemini_model_selected, "gemini-2.5-flash")
+
+            if st.button("API Key 삭제", key="btn_del_key_Gemini", help="입력한 Gemini API Key만 즉시 삭제하고 초기화합니다.", use_container_width=True):
+                st.session_state['api_key_store']["Gemini"] = ""
                 st.session_state[key_input_id] = ""
                 st.rerun()
 
-            with st.expander(f"{provider} API Key 발급 가이드"):
-                if provider == "Gemini":
-                    st.markdown("""
-                    **Google Gemini API Key (무료)**
-                    1. [Google AI Studio](https://aistudio.google.com/) 접속 후 로그인
-                    2. **Dashboard -> API 키 -> Create API key** 클릭
-                    3. 생성된 키를 위의 입력란에 붙여넣기
-                    """)
-                elif provider == "OpenAI":
-                    st.markdown("""
-                    **OpenAI ChatGPT API Key**
-                    1. [OpenAI Platform](https://platform.openai.com/) 로그인
-                    2. **API Keys -> Create new secret key** 클릭 후 복사
-                    """)
-                else:
-                    st.markdown("""
-                    **Anthropic Console API Key**
-                    1. [Anthropic Console](https://console.anthropic.com/) 접속 후 로그인
-                    2. **API Keys -> Create Key** 클릭 후 복사
-                    """)
+            with st.expander("Gemini API Key 발급 가이드"):
+                st.markdown("""
+                **Google Gemini API Key 발급 방법**
+                1. [Google AI Studio](https://aistudio.google.com/) 접속 후 로그인
+                2. **Dashboard -> API 키 -> Create API key** 클릭
+                3. 생성된 키를 위의 입력란에 붙여넣기
+                """)
 
         # 4. 엑셀 파일 업로드
         with st.expander("엑셀 파일 업로드", expanded=True):
@@ -2861,8 +3143,9 @@ def main():
                 else:
                     progress_container = st.container()
                     with progress_container:
-                        progress_bar = st.progress(0)
+                        progress_bar = st.progress(0.01)
                         status_text = st.empty()
+                        status_text.info("AI 정밀 검사 시작 중... (데이터 패키징 및 AI 모델 연결 ⏳)")
                         
                         st.markdown("<div style='height: 0.5rem;'></div>", unsafe_allow_html=True)
                         st.markdown("##### 📋 실시간 학생별 검증 현황")
@@ -2872,13 +3155,13 @@ def main():
                         def update_progress(event_type, current_b, total_b, st_label="학생", batch_items=None):
                             if event_type == "start":
                                 pct = (current_b) / total_b
-                                progress_bar.progress(max(0.02, pct))
+                                progress_bar.progress(max(0.01, min(0.99, pct)))
                                 status_text.info(f"AI 정밀 검사 진행 중... [{current_b + 1}/{total_b} 배치: **{st_label}** 분석 요청 중 ⏳]")
                                 return
 
                             # event_type == "finish"
                             pct = current_b / total_b
-                            progress_bar.progress(pct)
+                            progress_bar.progress(max(0.01, min(1.0, pct)))
                             status_text.info(f"AI 정밀 검사 진행 중... [{current_b}/{total_b} 배치 완료 ({st_label})]")
                             
                             items_list = batch_items if batch_items is not None else []
