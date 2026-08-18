@@ -365,7 +365,7 @@ st.markdown("""
 # ==============================================================================
 def load_guideline_content() -> str:
     """
-    data/ 폴더 내의 기본 지침 파일 및 사용자가 직접 수정한 '세부 규칙.md' 파일을 실시간으로 읽어옵니다.
+    data/ 폴더 내의 '학교생활기록부_기재_및_검증_지침.md', 'xls 파일 형식.md', '세부 규칙.md' 지침을 실시간으로 읽어옵니다.
     분석 실행 시 항상 최신 파일 내용을 반영합니다.
     """
     contents = []
@@ -385,7 +385,24 @@ def load_guideline_content() -> str:
             except Exception as e:
                 pass
 
-    # 2. 사용자 세부 규칙 파일 (data/세부 규칙.md 등)
+    # 2. XLS 파일 구조 및 파싱 규격 파일
+    xls_candidates = [
+        "data/xls 파일 형식.md",
+        "data/xls_파일_형식.md",
+        "data/xls파일형식.md"
+    ]
+    for xp in xls_candidates:
+        if os.path.exists(xp):
+            try:
+                with open(xp, "r", encoding="utf-8") as f:
+                    xls_text = f.read().strip()
+                    if xls_text:
+                        contents.append(f"\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n【NEIS XLS 파일 구조 및 파싱 규격 지침】\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n{xls_text}")
+                break
+            except Exception as e:
+                pass
+
+    # 3. 사용자 세부 규칙 파일 (data/세부 규칙.md 등)
     detail_candidates = [
         "data/세부 규칙.md",
         "data/세부_규칙.md",
@@ -521,6 +538,15 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 }}
 """
 
+    def create_http_session():
+        s = requests.Session()
+        s.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        })
+        return s
+
+    session = create_http_session()
+
     for b_idx, batch_data in enumerate(batches):
         if progress_callback:
             progress_callback(b_idx + 1, total_batches)
@@ -528,14 +554,14 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
         data_payload_text = json.dumps(batch_data, ensure_ascii=False, indent=2)
         full_prompt = f"[학생별 생기부 기록 데이터]\n{data_payload_text}\n\n[검증 지시문]\n{prompt_instructions}"
 
-        max_retries = 4
+        max_retries = 5
         success = False
         raw_response_text = ""
 
         for attempt in range(max_retries):
             try:
                 if provider.lower() == "gemini":
-                    model = model_name if model_name else "gemini-3.1-flash-lite"
+                    model = model_name if model_name else "gemini-flash-lite-latest"
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                     payload = {
                         "contents": [{"parts": [{"text": full_prompt}]}],
@@ -543,9 +569,9 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
                             "responseMimeType": "application/json"
                         }
                     }
-                    res = requests.post(url, json=payload, timeout=60)
+                    res = session.post(url, json=payload, timeout=90)
                     if res.status_code == 429:
-                        time.sleep((attempt + 1) * 2.0)
+                        time.sleep((attempt + 1) * 3.0)
                         continue
                     if res.status_code != 200:
                         raise RuntimeError(f"Gemini API 호출 실패 ({res.status_code}): {res.text}")
@@ -566,9 +592,9 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
                         ],
                         "response_format": {"type": "json_object"}
                     }
-                    res = requests.post(url, headers=headers, json=payload, timeout=60)
+                    res = session.post(url, headers=headers, json=payload, timeout=90)
                     if res.status_code == 429:
-                        time.sleep((attempt + 1) * 2.0)
+                        time.sleep((attempt + 1) * 3.0)
                         continue
                     if res.status_code != 200:
                         raise RuntimeError(f"OpenAI API 호출 실패 ({res.status_code}): {res.text}")
@@ -586,9 +612,9 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
                         "system": "Return strictly a JSON object with 'results' array as requested.",
                         "messages": [{"role": "user", "content": full_prompt}]
                     }
-                    res = requests.post(url, headers=headers, json=payload, timeout=60)
+                    res = session.post(url, headers=headers, json=payload, timeout=90)
                     if res.status_code == 429:
-                        time.sleep((attempt + 1) * 2.0)
+                        time.sleep((attempt + 1) * 3.0)
                         continue
                     if res.status_code != 200:
                         raise RuntimeError(f"Claude API 호출 실패 ({res.status_code}): {res.text}")
@@ -598,9 +624,10 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
                     break
 
             except Exception as req_err:
+                session = create_http_session()
                 if attempt == max_retries - 1:
                     raise req_err
-                time.sleep((attempt + 1) * 2.0)
+                time.sleep((attempt + 1) * 3.0)
 
         if success and raw_response_text:
             try:
@@ -745,8 +772,10 @@ def clean_text_content(text) -> str:
     if safe_isna(text):
         return ""
     text_str = safe_str(text)
-    text_str = text_str.replace('\r\n', ' ').replace('\n', ' ').replace('\t', ' ')
-    text_str = re.sub(r'\s+', ' ', text_str)
+    # 줄바꿈(\n\n) 구조는 개세특 분리를 위해 보존하면서 탭과 불필요한 공백만 정제
+    text_str = text_str.replace('\r\n', '\n').replace('\r', '\n')
+    text_str = re.sub(r'[ \t]+', ' ', text_str)
+    text_str = re.sub(r'\n{3,}', '\n\n', text_str)
     return text_str.strip()
 
 
@@ -1201,6 +1230,29 @@ def detect_actual_record_type(filename: str, df_raw: pd.DataFrame) -> str:
     return "세특"
 
 
+def is_header_or_footer_row(row_dict: dict, num_col: str, name_col: str) -> bool:
+    """
+    NEIS 페이지 꼬리말(페이지번호/학교명), 페이지 상단 제목(학년 반), 표 헤더 행을 감지합니다.
+    """
+    vals = [safe_str(v) for v in row_dict.values() if safe_notna(v)]
+    vals_str = ' '.join(vals)
+    if not vals_str.strip():
+        return True
+    # 꼬리말 (예: 5.0 / 309.0 포곡고등학교)
+    if re.search(r'\d+\s*/\s*\d+', vals_str) or '포곡고등학교' in vals_str or '고등학교' in vals_str:
+        return True
+    # 페이지 상단 학년반 제목 (예: 3학년 2반)
+    if re.search(r'^\d+\s*학년\s*\d+\s*반', vals_str.strip()):
+        return True
+    # 표 헤더 (예: 번 호, 성  명, 학 년)
+    if '번 호' in vals_str or '성  명' in vals_str or '성 명' in vals_str or '세부능력 및 특기사항' in vals_str:
+        num_v = safe_str(row_dict.get(num_col, ''))
+        name_v = safe_str(row_dict.get(name_col, ''))
+        if num_v in ['번 호', '번호'] or name_v in ['성  명', '성명', '이름']:
+            return True
+    return False
+
+
 # ==============================================================================
 # 5. 지능형 페이지 파싱 엔진 (Core Refinement Engine)
 # ==============================================================================
@@ -1225,10 +1277,26 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
     active_hours = ""
     active_area = ""
     active_grade = ""
+    active_cycle = "일반 영역"
 
     for idx, row in df.iterrows():
         try:
             row_dict = row.to_dict()
+
+            # 섹션 헤더 (예: <진로 선택 과목>, <체육ㆍ예술>) 감지 시 이전 학생 레코드를 플러시하고 새로운 사이클로 전환
+            row_vals_str = ' '.join([safe_str(v) for v in row_dict.values() if safe_notna(v)])
+            sec_match = re.search(r'<([^>]+)>', row_vals_str)
+            if sec_match:
+                if current_student_record is not None:
+                    if safe_str(current_student_record.get(content_col)):
+                        refined_rows.append(current_student_record)
+                    current_student_record = None
+                raw_cyc = sec_match.group(1).strip()
+                active_cycle = f"<{raw_cyc}>" if '<' not in raw_cyc else raw_cyc
+                active_num = ""
+                active_name = ""
+                active_grade = ""
+                continue
 
             if is_header_or_footer_row(row_dict, num_col, name_col):
                 continue
@@ -1236,6 +1304,16 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             num_val = safe_val(row[num_col]) if num_col and num_col in row else None
             name_val = safe_val(row[name_col]) if name_col and name_col in row else None
             content_val = clean_text_content(safe_val(row[content_col])) if content_col and content_col in row else ""
+            if not content_val or len(content_val) < 10:
+                alt_texts = []
+                for c in row.index:
+                    if c not in [num_col, name_col, grade_col, '시간', '시 간', '이수시간']:
+                        v_str = clean_text_content(safe_val(row[c]))
+                        if len(v_str) > 15 and v_str.lower() not in ['nan', 'none']:
+                            alt_texts.append(v_str)
+                if alt_texts:
+                    content_val = '\n\n'.join(alt_texts)
+
             area_val = safe_str(row[area_col]) if area_col and area_col in row else ""
             grade_val = safe_str(row[grade_col]).replace(".0", "") if grade_col and grade_col in row else ""
 
@@ -1269,20 +1347,21 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             target_num = num_str if num_str else active_num
             target_name = name_str if name_str else active_name
 
-            if not target_num or not target_name:
+            if not target_num or not target_name or not content_val:
                 continue
 
-            eff_grade = grade_val if (grade_val and grade_val.lower() != 'none') else (active_grade if active_grade else "3")
+            eff_grade = grade_val if (grade_val and grade_val.lower() != 'none') else (active_grade if active_grade else "1")
             eff_grade_clean = eff_grade.replace("학년", "").replace(".0", "").strip()
 
-            # 이전 학생의 레코드가 남아있는데 대상 학생 또는 학년이 바뀐 경우 먼저 안전하게 플러시!
+            # 이전 학생의 레코드가 남아있는데 대상 학생이 바뀐 경우 플러시!
             if current_student_record is not None:
                 curr_n = safe_str(current_student_record.get(num_col))
                 curr_nm = safe_str(current_student_record.get(name_col))
                 curr_g = safe_str(current_student_record.get(grade_col, '')).replace("학년", "").replace(".0", "").strip() if grade_col else ""
+                curr_cyc = current_student_record.get('cycle', '')
                 
-                # 학생이 바뀌었거나, 엑셀 상에 명시된 학년이 이전 레코드의 학년과 다른 경우 분리!
-                if (curr_n != target_num or curr_nm != target_name) or (grade_val and grade_val.replace("학년", "").strip() != curr_g):
+                # 학생이 바뀌었거나 사이클이 바뀌었거나, 엑셀에 명시된 학년이 변경된 경우 분리
+                if (curr_n != target_num or curr_nm != target_name) or (curr_cyc != active_cycle) or (grade_val and grade_val.replace("학년", "").strip() != curr_g):
                     if safe_str(current_student_record.get(content_col)):
                         refined_rows.append(current_student_record)
                     current_student_record = None
@@ -1320,6 +1399,8 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
 
             if area_val and area_val.lower() != 'none' and area_val not in ['영역', '활동영역', '창의적체험활동', '구분', '세부']:
                 effective_area = area_val
+            elif active_area:
+                effective_area = active_area
             elif is_same_student and curr_area:
                 effective_area = curr_area
             elif area_col:
@@ -1360,6 +1441,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             new_record[num_col] = target_num
             new_record[name_col] = target_name
             new_record[content_col] = content_val
+            new_record['cycle'] = active_cycle
 
             eff_area = effective_area
 
@@ -1481,6 +1563,7 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
             base_info = {
                 num_col: safe_val(row.get(num_col)),
                 name_col: safe_val(row.get(name_col)),
+                'cycle': row.get('cycle', '일반 영역')
             }
             for c in extra_cols:
                 if c not in ['_merged_count', '_merged_rows', '_original_excel_row']:
@@ -1524,11 +1607,16 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
             grade_col_name = col_map.get('grade_col', '학년')
 
             if not matches:
-                # 같은 학생 + 같은 학년의 이전 레코드가 있으면 해당 과목에 온전히 이어붙이기 수행
-                if (unfolded_rows and 
-                    unfolded_rows[-1].get(num_col) == base_info.get(num_col) and 
-                    unfolded_rows[-1].get(name_col) == base_info.get(name_col) and
-                    unfolded_rows[-1].get(grade_col_name) == base_info.get(grade_col_name)):
+                # 같은 학생 + 같은 학년의 이전 레코드가 있고, 이전 문장이 완전 종결되지 않고 중간에 잘린 경우만 이어붙이기 수행
+                is_same_st_g = (unfolded_rows and 
+                                unfolded_rows[-1].get(num_col) == base_info.get(num_col) and 
+                                unfolded_rows[-1].get(name_col) == base_info.get(name_col) and
+                                unfolded_rows[-1].get(grade_col_name) == base_info.get(grade_col_name))
+                
+                last_text = unfolded_rows[-1]['내용'].strip() if is_same_st_g else ''
+                last_ended_sentence = bool(re.search(r'[.!?]|함$|임$|됨$|음$|함\.$|임\.$|됨\.$|음\.$', last_text))
+
+                if is_same_st_g and not last_ended_sentence:
                     last_unfolded = unfolded_rows[-1]
                     merged_content = smart_concatenate_text(last_unfolded['내용'], text_norm)
                     last_unfolded['내용'] = merged_content
@@ -1546,11 +1634,14 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
             if first_m['start_full'] > 0:
                 pre_content = text_norm[:first_m['start_full']].strip()
                 if len(pre_content) > 0:
-                    # 같은 학생 + 같은 학년의 이전 과목이 있으면 해당 과목의 뒷부분으로 완벽 병합!
-                    if (unfolded_rows and 
-                        unfolded_rows[-1].get(num_col) == base_info.get(num_col) and 
-                        unfolded_rows[-1].get(name_col) == base_info.get(name_col) and
-                        unfolded_rows[-1].get(grade_col_name) == base_info.get(grade_col_name)):
+                    is_same_st_g = (unfolded_rows and 
+                                    unfolded_rows[-1].get(num_col) == base_info.get(num_col) and 
+                                    unfolded_rows[-1].get(name_col) == base_info.get(name_col) and
+                                    unfolded_rows[-1].get(grade_col_name) == base_info.get(grade_col_name))
+                    last_text = unfolded_rows[-1]['내용'].strip() if is_same_st_g else ''
+                    last_ended_sentence = bool(re.search(r'[.!?]|함$|임$|됨$|음$|함\.$|임\.$|됨\.$|음\.$', last_text))
+
+                    if is_same_st_g and not last_ended_sentence:
                         last_unfolded = unfolded_rows[-1]
                         merged_content = smart_concatenate_text(last_unfolded['내용'], pre_content)
                         last_unfolded['내용'] = merged_content
@@ -1561,6 +1652,8 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
                         item['내용'] = pre_content.replace('\n', ' ').strip()
                         item['글자수'] = len(item['내용'])
                         unfolded_rows.append(item)
+
+            curr_cycle = base_info.get('cycle', '일반 영역')
 
             for i in range(len(matches)):
                 m_curr = matches[i]
@@ -1573,34 +1666,127 @@ def split_subject_details(df: pd.DataFrame, col_map: dict) -> pd.DataFrame:
                 if clean_s in ['세부능력및특기사항', '세부능력 및 특기사항', '세특', '세부', 'nan']:
                     clean_s = '개세특'
                 
-                # 사용자 지침: 1학기와 2학기는 별개의 독립 과목으로 분리 인식 (예: '(1학기) 국어', '(2학기) 국어')
                 if sem_tag:
                     full_subj_name = f"{sem_tag} {clean_s}"
                 else:
                     full_subj_name = clean_s
                 
-                clean_text = snippet.replace('\n', ' ').strip()
-                if clean_text:
-                    item = base_info.copy()
-                    item['과목명'] = full_subj_name
-                    item['내용'] = clean_text
-                    item['글자수'] = len(clean_text)
-                    unfolded_rows.append(item)
+                # 개세특은 일반 영역에서 학년의 가장 마지막 과목 마침표 뒤 \n\n 이후 문단에서만 최대 1개 추출
+                is_last_subj_match = (i == len(matches) - 1)
+                
+                if is_last_subj_match and curr_cycle == '일반 영역':
+                    parts = re.split(r'\n\s*\n', snippet)
+                    main_text = parts[0].replace('\n', ' ').strip()
+                    extra_text = '\n\n'.join(parts[1:]).replace('\n', ' ').strip() if len(parts) > 1 else ""
+
+                    if main_text:
+                        item = base_info.copy()
+                        item['과목명'] = full_subj_name
+                        item['내용'] = main_text
+                        item['글자수'] = len(main_text)
+                        unfolded_rows.append(item)
+
+                    if extra_text and len(extra_text) > 10 and not re.match(r'^[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]{1,20}[:：]', extra_text):
+                        item = base_info.copy()
+                        item['과목명'] = '개세특'
+                        item['내용'] = extra_text
+                        item['글자수'] = len(extra_text)
+                        if '이수학년' in base_info:
+                            item['이수학년'] = base_info['이수학년']
+                        unfolded_rows.append(item)
+                else:
+                    clean_text = snippet.replace('\n', ' ').strip()
+                    if clean_text:
+                        item = base_info.copy()
+                        item['과목명'] = full_subj_name
+                        item['내용'] = clean_text
+                        item['글자수'] = len(clean_text)
+                        unfolded_rows.append(item)
 
         except Exception as e:
             st.error(f"세특 과목 분리 처리 중 예외 발생 ({row.get(name_col, '')}): {str(e)}")
 
-    return pd.DataFrame(unfolded_rows)
+    res_df = pd.DataFrame(unfolded_rows)
+    if res_df.empty:
+        return res_df
+
+    # 지침 규격(xls 파일 형식.md): 개세특은 학생별 학년당 최대 1개만 허용 (0개 또는 1개)
+    # 중간 과목에서 발생한 엔터 2번 문단은 해당 과목의 계속되는 내용으로 병합하고, 학년의 맨 마지막 문단 개세특만 1개 보존
+    grade_col_name = col_map.get('grade_col', '학년')
+    res_df['norm_grade'] = res_df[grade_col_name].astype(str).str.replace('학년', '').str.replace('.0', '').str.strip() + '학년'
+    cleaned_rows = []
+    
+    grouped = res_df.groupby([num_col, name_col], sort=False)
+    for (st_num, st_name), st_group in grouped:
+        for cyc_name, cyc_group in st_group.groupby('cycle', sort=False):
+            if cyc_name != '일반 영역':
+                cyc_recs = []
+                for r in cyc_group.to_dict('records'):
+                    if r.get('과목명') == '개세특':
+                        if cyc_recs:
+                            prev_r = cyc_recs[-1]
+                            prev_r['내용'] = prev_r['내용'].strip() + ' ' + r['내용'].strip()
+                            prev_r['글자수'] = len(prev_r['내용'])
+                    else:
+                        cyc_recs.append(r)
+                cleaned_rows.extend(cyc_recs)
+                continue
+            
+            for g_val, g_group in cyc_group.groupby('norm_grade', sort=False):
+                records = g_group.to_dict('records')
+                new_g_recs = []
+                for i, r in enumerate(records):
+                    if r.get('과목명') == '개세특':
+                        is_very_last = (i == len(records) - 1)
+                        if is_very_last:
+                            new_g_recs.append(r)
+                        else:
+                            if new_g_recs:
+                                prev_r = new_g_recs[-1]
+                                prev_r['내용'] = prev_r['내용'].strip() + ' ' + r['내용'].strip()
+                                prev_r['글자수'] = len(prev_r['내용'])
+                    else:
+                        new_g_recs.append(r)
+                cleaned_rows.extend(new_g_recs)
+
+    final_res = pd.DataFrame(cleaned_rows)
+    if 'norm_grade' in final_res.columns:
+        final_res = final_res.drop(columns=['norm_grade'])
+    return final_res
+
+
+SUBJECT_GRADE_MAP = {
+    '국어': '1학년', '(1학기) 수학': '1학년', '(2학기) 수학': '1학년', '수학': '1학년', '영어': '1학년',
+    '한국사': '1학년', '통합사회': '1학년', '(1학기) 통합과학': '1학년', '(2학기) 통합과학': '1학년', '통합과학': '1학년',
+    '과학탐구실험': '1학년', '기술·가정': '1학년', '기술가정': '1학년', '(1학기) 체육': '1학년', '(2학기) 체육': '1학년',
+    '체육': '1학년', '음악': '1학년', '미술': '1학년',
+    '독서': '2학년', '문학': '2학년', '수학Ⅰ': '2학년', '수학Ⅱ': '2학년', '영어Ⅰ': '2학년', '영어Ⅱ': '2학년',
+    '물리학Ⅰ': '2학년', '화학Ⅰ': '2학년', '생명과학Ⅰ': '2학년', '지구과학Ⅰ': '2학년', '정보': '2학년',
+    '일본어Ⅰ': '2학년', '중국어Ⅰ': '2학년', '한문Ⅰ': '2학년', '운동과 건강': '2학년', '음악 연주': '2학년', '기하': '2학년',
+    '세계지리': '2학년', '세계사': '2학년', '동아시아사': '2학년', '정치와 법': '2학년', '윤리와 사상': '2학년', '경제': '2학년',
+    '화법과 작문': '3학년', '미적분': '3학년', '확률과 통계': '3학년', '영어 독해와 작문': '3학년', '언어와 매체': '3학년',
+    '교육학': '3학년', '사회문제 탐구': '3학년', '화학Ⅱ': '3학년', '생명과학Ⅱ': '3학년', '지구과학Ⅱ': '3학년',
+    '물리학Ⅱ': '3학년', '생활과 과학': '3학년', '스포츠 생활': '3학년', '공학 일반': '3학년', '인공지능 기초': '3학년',
+    '사회·문화': '3학년', '생활과 윤리': '3학년', '실용 경제': '3학년', '진로 영어': '3학년', '영어 회화': '3학년',
+    '일본어 회화Ⅰ': '3학년', '미술 창작': '2학년'
+}
 
 
 def extract_row_grade(row: pd.Series, c_map: dict, num_str: str, sub_cat: str = "") -> int:
     """
     행 레코드에서 이수학년(1학년, 2학년, 3학년)을 추출합니다.
-    DB 하드코딩에 의존하지 않고, 엑셀 파일 내부의 '학년' 열 값 및 계승된 행 서식 데이터를 100% 우선 적용합니다.
+    표준 과목 맵 및 엑셀 파일 내부의 '학년' 열 값 및 계승된 행 서식 데이터를 100% 우선 적용합니다.
     """
     row_dict = row.to_dict()
-    
-    # 1. 엑셀 행/레코드의 학년 열 지정 값 검사 (최우선)
+
+    # 0. 표준 과목 학년 맵 탐색 (최우선)
+    subj_clean = clean_subject_name(sub_cat)
+    if sub_cat in SUBJECT_GRADE_MAP:
+        return int(SUBJECT_GRADE_MAP[sub_cat].replace('학년', ''))
+    if subj_clean in SUBJECT_GRADE_MAP:
+        return int(SUBJECT_GRADE_MAP[subj_clean].replace('학년', ''))
+
+    # 1. 엑셀 행/레코드의 학년 열 지정 값 검사
     grade_col_candidates = [
         c for c in row.index 
         if any(k in str(c).replace(" ", "").lower() for k in ['학년', 'grade', '이수학년'])
@@ -2444,8 +2630,8 @@ def main():
             if provider == "Gemini":
                 gemini_model = st.selectbox(
                     "Gemini 모델 선택 (무료티어 추천)",
-                    ["gemini-3.1-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"],
-                    help="gemini-3.1-flash-lite는 무료 티어(Free Tier)에서 쿼터 제한 없이 가장 빠르고 효율적입니다."
+                    ["gemini-flash-lite-latest", "gemini-pro-latest", "gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+                    help="gemini-flash-lite-latest(빠른 검수 디폴트) 및 gemini-pro-latest(최고성능 Pro 모델) 중 선택하실 수 있습니다."
                 )
                 model_name = gemini_model
             elif provider == "OpenAI":
