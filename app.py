@@ -3381,7 +3381,7 @@ def main():
                         with b1:
                             st.download_button(
                                 "엑셀 (.xlsx)",
-                                data=create_audit_report_excel_bytes(req_df_out),
+                                data=lambda: create_audit_report_excel_bytes(req_df_out),
                                 file_name=f"{prefix}_수정필수.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="dl_req_excel",
@@ -3391,7 +3391,7 @@ def main():
                         with b2:
                             st.download_button(
                                 "PDF (.pdf)",
-                                data=create_audit_report_pdf_bytes(req_df_out),
+                                data=lambda: create_audit_report_pdf_bytes(req_df_out),
                                 file_name=f"{prefix}_수정필수.pdf",
                                 mime="application/pdf",
                                 key="dl_req_pdf",
@@ -3405,7 +3405,7 @@ def main():
                         with b3:
                             st.download_button(
                                 "엑셀 (.xlsx)",
-                                data=create_audit_report_excel_bytes(rec_df_out),
+                                data=lambda: create_audit_report_excel_bytes(rec_df_out),
                                 file_name=f"{prefix}_수정권장.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="dl_rec_excel",
@@ -3415,7 +3415,7 @@ def main():
                         with b4:
                             st.download_button(
                                 "PDF (.pdf)",
-                                data=create_audit_report_pdf_bytes(rec_df_out),
+                                data=lambda: create_audit_report_pdf_bytes(rec_df_out),
                                 file_name=f"{prefix}_수정권장.pdf",
                                 mime="application/pdf",
                                 key="dl_rec_pdf",
@@ -3432,7 +3432,7 @@ def main():
                         with b_all1:
                             st.download_button(
                                 "엑셀 (.xlsx)",
-                                data=create_audit_report_excel_bytes(filtered_df),
+                                data=lambda: create_audit_report_excel_bytes(filtered_df),
                                 file_name=f"{prefix}_전체리포트.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="dl_all_excel",
@@ -3442,7 +3442,7 @@ def main():
                         with b_all2:
                             st.download_button(
                                 "PDF (.pdf)",
-                                data=create_audit_report_pdf_bytes(filtered_df),
+                                data=lambda: create_audit_report_pdf_bytes(filtered_df),
                                 file_name=f"{prefix}_전체리포트.pdf",
                                 mime="application/pdf",
                                 key="dl_all_pdf",
@@ -3457,7 +3457,7 @@ def main():
                         with b_clean1:
                             st.download_button(
                                 "엑셀 (.xlsx)",
-                                data=create_formatted_excel_bytes(available_exports),
+                                data=lambda: create_formatted_excel_bytes(available_exports),
                                 file_name=f"{prefix}_정제원본.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="dl_clean_excel",
@@ -3467,7 +3467,7 @@ def main():
                         with b_clean2:
                             st.download_button(
                                 "PDF (.pdf)",
-                                data=create_refined_original_pdf_bytes(st.session_state['data_store']),
+                                data=lambda: create_refined_original_pdf_bytes(st.session_state['data_store']),
                                 file_name=f"{prefix}_정제원본.pdf",
                                 mime="application/pdf",
                                 key="dl_clean_pdf",
