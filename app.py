@@ -435,8 +435,10 @@ def fetch_available_gemini_models(api_key: str):
                 methods = m.get("supportedGenerationMethods", [])
                 if "generateContent" in methods:
                     m_id = m.get("name", "").replace("models/", "")
-                    # 오직 순수 Gemini 모델만 필터링 (gemma, learnlm, bison 등 비-Gemini 모델 및 임베딩 제외)
+                    # 오직 'Lite' 모델만 필터링 (gemma, 임베딩 등 제외)
                     if not m_id.lower().startswith("gemini"):
+                        continue
+                    if "lite" not in m_id.lower() and "lite" not in display.lower() and "8b" not in m_id.lower():
                         continue
                     if any(skip in m_id.lower() for skip in ["embedding", "aqa", "imagen", "whisper", "tts"]):
                         continue
@@ -444,24 +446,16 @@ def fetch_available_gemini_models(api_key: str):
                     display = m.get("displayName", m_id)
                     
                     score = 50
-                    if "2.5-flash" in m_id.lower():
+                    if "3.5-flash-lite" in m_id.lower() or "3.5" in m_id.lower():
+                        score = 120
+                    elif "flash-lite-latest" in m_id.lower():
                         score = 110
-                    elif "3.1-pro" in m_id.lower():
-                        score = 105
-                    elif "1.5-pro-002" in m_id.lower():
+                    elif "2.5-flash-lite" in m_id.lower():
                         score = 100
-                    elif "1.5-pro" in m_id.lower():
-                        score = 95
-                    elif "2.0-flash" in m_id.lower():
+                    elif "2.0-flash-lite" in m_id.lower():
                         score = 90
-                    elif "1.5-flash" in m_id.lower():
-                        score = 85
-                    elif "2.0-pro" in m_id.lower():
+                    elif "lite" in m_id.lower():
                         score = 80
-                    elif "pro" in m_id.lower():
-                        score = 75
-                    elif "flash" in m_id.lower():
-                        score = 70
 
                     models.append({
                         "id": m_id,
@@ -605,18 +599,15 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
     completed_batches = 0
     print(f"[INFO] Total batches to process: {total_batches} (students: {len(student_grouped)})")
 
-    prompt_instructions = f"""
+    prompt_instructions = """
 당신은 대한민국 교육부 학교생활기록부(창체, 세특, 행특) 오탈자 교정 및 기재지침 검증 최고 권위의 감사 전문가 AI입니다.
 전달된 학생의 모든 활동 및 과목별 서술문을 글자 하나, 단어 하나 단위로 전수 정밀 감사하여, 발견된 모든 오탈자, 맞춤법 오류, 띄어쓰기 오류, 기재금지어를 빠짐없이 'results' 목록에 담아 반환하십시오.
-
-[참고 지침 문서]
-{guideline_text}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【검증 핵심 대상 및 등급(severity) 기준】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. [수정 필수] - 법적 지침 위반, 맞춤법/오탈자/띄어쓰기/조사/특수문자 오류 (가장 엄격하고 적극적으로 검출할 것):
-   - 조사 호응 및 조사 선택 오류 (받침 유무 및 문맥 호응):
+1. [수정 필수] - 법적 기재금지어, 맞춤법/오탈자/띄어쓰기/조사 호응/특수문자 오류:
+   - 조사 호응 및 선택 오류:
      * 받침 없는 체언 뒤 조사 '을' 오용: '카드뉴스을' ➔ '카드뉴스를', '생산 인구을' ➔ '생산 인구를', '갯수을' ➔ '개수를'
      * 문맥상 잘못된 조사 사용: '목민심서를 나타난' ➔ '목민심서에 나타난', '역사적 배경으로 기반으로' ➔ '역사적 배경을 기반으로'
      * 조사 오탈자 / 불필요한 끝조사: '활동체 참여' ➔ '활동에 참여', '명극즉 과찰이다의' ➔ '명즉즉 과찰이다'
@@ -627,8 +618,7 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
    - 맞춤법 및 피동/사동/어미/사이시옷 오류:
      * '높힘.' ➔ '높임.', '신뢰도를 높혔음.' ➔ '신뢰도를 높였음.'
      * '영상이였으며' ➔ '영상이었으며'
-     * '갯수' ➔ '개수'
-     * '띔' ➔ '띰', '안되' ➔ '안 돼', '되서' ➔ '돼서', '치뤄' ➔ '치러', '바램' ➔ '바람', '만듬' ➔ '만듦', '도우는' ➔ '돕는', '맞추다'/'맞히다', '낳다'/'낫다'
+     * '갯수' ➔ '개수', '띔' ➔ '띰', '안되' ➔ '안 돼', '되서' ➔ '돼서', '치뤄' ➔ '치러', '바램' ➔ '바람', '만듬' ➔ '만듦', '도우는' ➔ '돕는', '맞추다'/'맞히다', '낳다'/'낫다'
    - 문맥상 부자연스러운 단어 오용 / 동음이의어 오탈자:
      * '정서함.' ➔ '작성함.' (문맥상 글이나 문장을 지어 기록한다는 의미의 오탈자)
      * '캐슬을' ➔ '캔슬을' (캔슬 컬처 오타)
@@ -639,49 +629,41 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
      * '생성형 , 인공지능의' ➔ '생성형 인공지능의' (쉼표 앞 불필요한 공백 제거)
      * 따옴표('"), 쉼표(,), 마침표(.), 느낌표(!), 물음표(?), 콜론(:), 괄호 외 불필요 특수기호(★, ◆, ~, @, #, $ 등) 제거
    - 띄어쓰기 규정 위반:
-     * '할수있다' ➔ '할 수 있다', '찾기위해' ➔ '찾기 위해', '초등학교때' ➔ '초등학교 때', '배운점' ➔ '배운 점', '느낀점' ➔ '느낀 점', '수업시간' ➔ '수업 시간', '다양한활동' ➔ '다양한 활동' 등 모든 한국어 띄어쓰기 규정 위반
-   - 법적 기재 금지어 및 미허용 브랜드명/약어:
+     * '할수있다' ➔ '할 수 있다', '찾기위해' ➔ '찾기 위해', '초등학교때' ➔ '초등학교 때', '배운점' ➔ '배운 점', '느낀점' ➔ '느낀 점', '수업시간' ➔ '수업 시간', '다양한활동' ➔ '다양한 활동' 등
+   - 법적 기재 금지어 및 상호/브랜드명 대체:
      * 특정 상호나 브랜드명 노출('프OOOO, 봄O' 등) ➔ 익명화 처리 또는 일반 명사로 기재
-     * 입력 불가 약어/용어: 'OTT' ➔ '동영상 플랫폼' 등 매핑표 지정 대체어로 교정 제안
+     * 서비스/플랫폼 대체어: 'OTT' ➔ '동영상 플랫폼', '유튜브/넷플릭스' ➔ '동영상 플랫폼', '네이버/구글' ➔ '인터넷 포털 사이트', '챗GPT/클로드' ➔ '생성형 인공지능', '인스타그램/페이스북' ➔ 'SNS', '줌/팀즈' ➔ '화상 회의 플랫폼'
      * 공인어학성적, 교외 수상, 논문/학회지/도서출판/특허, 사교육/학원명, 영재교육원, 부모 직업, 특정 대학명/기관명 등
    - 창체 영역별 이수시간 0시간 (순회/위탁 등 특수 사유 서술문 학생 제외)
 
 2. [수정 권장] - 문맥 및 서술 완성도 개선, 표준 외래어 표기:
-   - 표준 외래어 표기법 및 권장 용어:
-     * '프리젠테이션' ➔ '프레젠테이션'
-     * '어플' ➔ '앱'
-   - 문맥에 맞는 적절한 어휘 및 띄어쓰기 개선:
-     * '외성적' ➔ '외형적'
-     * '서본결' ➔ '서결론'
-     * '냉동 선생산' ➔ '냉동 선행 생산'
+   - 표준 외래어 표기법: '프리젠테이션' ➔ '프레젠테이션', '어플' ➔ '앱'
+   - 문맥에 맞는 적절한 어휘: '외성적' ➔ '외형적', '서본결' ➔ '서결론', '냉동 선생산' ➔ '냉동 선행 생산'
    - 주어-서술어 불일치, 지나치게 어색한 비문 또는 문장 구조 다듬기
 
 3. [검토 권장] - 서술 관점 개선 및 소극적 서술 완화:
-   - 학생의 주관적 추측/독백 서술 ➔ 교사 관찰 중심 전환:
-     * '~기대해 봄.', '~느낌.', '~배움.', '~다짐함.' ➔ '~에 대한 관심이 높음.', '~모습을 보임.'
-   - 소극적 서술 완화:
-     * '주제탐구 활동에 참여하려고 노력함.' ➔ '주제 탐구 활동에 적극적으로 참여함.' / '주제 탐구 활동에 참여함.'
-   - 보다 학술적이고 객관적인 용어로 표현 개선:
-     * '인공지능 그림' ➔ '생성형 인공지능 활용 이미지'
+   - 학생의 주관적 추측/독백 서술 ➔ 교사 관찰 중심 전환: '~기대해 봄.', '~느낌.', '~배움.', '~다짐함.' ➔ '~에 대한 관심이 높음.', '~모습을 보임.'
+   - 소극적 서술 완화: '주제탐구 활동에 참여하려고 노력함.' ➔ '주제 탐구 활동에 적극적으로 참여함.' / '주제 탐구 활동에 참여함.'
+   - 학술적 객관화: '인공지능 그림' ➔ '생성형 인공지능 활용 이미지'
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【예외 및 주의사항 (오탐 방지)】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- 도서명(책 제목) 및 저자명은 지침 2.1.4에 따라 전 영역 기재 가능하므로 절대 오류로 지적하지 마십시오.
-- PPT, IT, AI, DNA, RNA, STEAM, SW, VR, AR, UCC, SNS, POPS, PD, TV, CEO 등 표준 영문 약어는 학교생활기록부 기재요령상 허용된 합법적 표기입니다.
+- '기술·가정', '사회·문화', '체육ㆍ예술' 등 대등한 명사나 과목명 표기 시 가운뎃점(·)은 정상 허용입니다.
+- 도서명(책 제목) 및 저자명은 전 영역 기재 가능하므로 절대 오류로 지적하지 마십시오.
+- PPT, IT, AI, DNA, RNA, STEAM, SW, VR, AR, UCC, SNS, POPS, PD, TV, CEO 등 표준 영문 약어는 허용된 합법적 표기입니다.
 - '(1학기)', '(2학기)' 학기 표기 및 동아리활동 '(동아리명)(이수시간)' 표기는 나이스(NEIS) 표준 서식이므로 절대 오류로 지적하지 마십시오.
 - 'E사', 'A사', 'B사' 등 알파벳 1글자 기업 블라인드 표기는 정당한 익명화 방식입니다.
 - 날짜/기간 표기('2025.07.08.' 등)는 지양 사항일 뿐 오류로 지적하지 마십시오.
-- 엑셀 페이지 나눔으로 단어가 끊긴 경우(예: '비교 분석하고', '신뢰감 있는') 쪼개진 글자를 임의로 삭제하거나 없는 단어를 환각으로 지어내지 마십시오.
-- 'reason(수정해야하는 이유나 근거)' 항목을 작성할 때는 조항 번호(예: '지침 2.1.4' 등) 없이 맞춤법, 띄어쓰기, 어미 교정 등 구체적인 이유만 작성하십시오.
+- 'reason' 항목에는 조항 번호 없이 맞춤법, 띄어쓰기, 어미 교정 등 구체적인 이유만 작성하십시오.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【출력 형식 (JSON Schema)】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 반드시 오직 아래의 JSON 데이터만 반환하십시오. 마크다운 추가 텍스트 없이 순수한 JSON만 반환해야 합니다:
-{{
+{
   "results": [
-    {{
+    {
       "student_id": "학번 (5자리 숫자로 작성, 예: 30101)",
       "student_name": "학생 이름",
       "category": "구분 (창체 / 세특 / 행발 중 하나)",
@@ -691,9 +673,9 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
       "suggested_text": "올바르게 교정된 수정 후 추천 문구",
       "reason": "수정해야 하는 명확한 이유나 근거 (조항 번호 없이 구체적 이유 기술)",
       "severity": "수정 필수, 수정 권장, 검토 권장 중 하나 (맞춤법/오탈자/띄어쓰기/금지어는 반드시 '수정 필수')"
-    }}
+    }
   ]
-}}
+}
 """
 
     try:
@@ -706,7 +688,7 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
     import threading
     _api_lock = threading.Lock()
     _last_call_time = [0.0]  # mutable for closure
-    MIN_CALL_INTERVAL = 4.5  # 초 (15 RPM = 4초 간격 + 여유 0.5초)
+    MIN_CALL_INTERVAL = 6.0  # 초 (분당 10회 및 250k TPM 쿼터 준수)
 
     def rate_limited_api_call(b_idx, batch_data):
         """Rate limit을 준수하며 API를 호출하는 함수"""
@@ -738,6 +720,7 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
         max_retries = 8
         success = False
         raw_response_text = ""
+        current_model = model_name if model_name else "gemini-2.5-flash"
 
         for attempt in range(max_retries):
             # Rate Limit 준수: 마지막 호출로부터 최소 MIN_CALL_INTERVAL초 대기
@@ -751,15 +734,6 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
 
             try:
                 if provider.lower() == "gemini":
-                    base_model = model_name if model_name else "gemini-2.0-flash"
-                    # 503/429 발생 시 다른 안정적 엔드포인트로 자동 폴백 전환
-                    if attempt >= 2:
-                        fallback_list = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash", "gemini-flash-latest"]
-                        current_model = fallback_list[(attempt - 2) % len(fallback_list)]
-                        print(f"[DEBUG batch#{b_idx}] 503/429 Fallback: Switching model to '{current_model}'")
-                    else:
-                        current_model = base_model
-
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{current_model}:generateContent?key={api_key}"
                     payload = {
                         "contents": [{"parts": [{"text": full_prompt}]}],
@@ -772,21 +746,24 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
                     res = session.post(url, json=payload, timeout=120)
                     print(f"[DEBUG batch#{b_idx}] Gemini ({current_model}) HTTP {res.status_code} (attempt {attempt+1})")
                     if res.status_code == 404:
-                        # 404(모델 지원 종료/미존재) 발생 시 즉시 유효한 최신 모델로 전환
-                        print(f"[DEBUG batch#{b_idx}] Model '{current_model}' 404 NOT_FOUND. Fallback to alternative model.")
-                        fallback_list = ["gemini-3.1-pro-preview", "gemini-1.5-pro", "gemini-2.0-flash", "gemini-1.5-flash"]
+                        # 404(모델 미지원) 발생 시 100% 정상 작동하는 공식 표준 엔드포인트로 즉시 전환
+                        print(f"[DEBUG batch#{b_idx}] Model '{current_model}' 404 NOT_FOUND. Switching to universal stable endpoint.")
+                        fallback_list = ["gemini-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro-latest"]
                         current_model = fallback_list[attempt % len(fallback_list)]
                         time.sleep(1.0)
                         continue
                     if res.status_code == 429:
-                        # 429 전용 장기 대기: 15초, 30초, 45초, 60초...
-                        backoff = min(15 * (attempt + 1), 90)
-                        print(f"[DEBUG batch#{b_idx}] 429 Rate Limit! Backing off {backoff}s...")
+                        # 429: 모델을 바꾸지 않고 동일 모델에서 1분 롤링 윈도우 대기 (20초, 40초, 60초)
+                        backoff = min(20 * (attempt + 1), 60)
+                        print(f"[DEBUG batch#{b_idx}] 429 Rate Limit! Waiting {backoff}s for quota window...")
                         time.sleep(backoff)
                         continue
                     if res.status_code in [500, 502, 503, 504]:
-                        backoff = (attempt + 1) * 5
-                        print(f"[DEBUG batch#{b_idx}] Server error {res.status_code}, backing off {backoff}s...")
+                        # 503(서버 부하) 발생 시 다른 여유 있는 클러스터(gemini-1.5-pro, gemini-1.5-flash)로 즉시 우회
+                        fallback_pool = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-flash-latest"]
+                        current_model = fallback_pool[attempt % len(fallback_pool)]
+                        backoff = (attempt + 1) * 3
+                        print(f"[DEBUG batch#{b_idx}] Server error {res.status_code}, routing to '{current_model}' (waiting {backoff}s)...")
                         time.sleep(backoff)
                         continue
                     if res.status_code != 200:
@@ -2906,35 +2883,29 @@ def main():
                 gemini_model_options = list(gemini_model_api_map.keys())
                 default_idx = 0
                 for i, opt in enumerate(gemini_model_options):
-                    if "2.5-flash" in opt.lower():
+                    if "3.5" in opt.lower() and "lite" in opt.lower():
                         default_idx = i
                         break
-                    elif "3.1-pro" in opt.lower():
-                        default_idx = i
-                    elif "1.5-pro" in opt.lower():
+                    elif "flash-lite-latest" in opt.lower():
                         default_idx = i
             else:
-                # API 키 입력 전 또는 기본 정적 선택지
+                # 기본 선택지 (Gemini 3.5 Flash Lite 최상단 1순위)
                 gemini_model_api_map = {
-                    "Gemini 2.5 Flash (gemini-2.5-flash - 실시간 검증 완료/초고속) 🚀🌟": "gemini-2.5-flash",
-                    "Gemini 3.1 Pro Preview (gemini-3.1-pro-preview - 최신 차세대 Pro) 🌟": "gemini-3.1-pro-preview",
-                    "Gemini 1.5 Pro (gemini-1.5-pro - 검증된 최고 안정 Pro)": "gemini-1.5-pro",
-                    "Gemini 2.0 Flash (gemini-2.0-flash - 초고속 Flash) ⚡": "gemini-2.0-flash",
-                    "Gemini 1.5 Flash (gemini-1.5-flash - 가장 안정적) ⚡": "gemini-1.5-flash",
-                    "Gemini 1.0 Pro (gemini-1.0-pro - 구버전 Pro)": "gemini-1.0-pro",
-                    "Gemini Flash Latest (gemini-flash-latest)": "gemini-flash-latest",
-                    "Gemini Pro Latest (gemini-pro-latest)": "gemini-pro-latest"
+                    "Gemini 3.5 Flash Lite (gemini-3.5-flash-lite - 기본/초고속 Lite) ⚡🚀": "gemini-3.5-flash-lite",
+                    "Gemini Flash-Lite Latest (gemini-flash-lite-latest - 최신 공식 Lite) ⚡": "gemini-flash-lite-latest",
+                    "Gemini 2.5 Flash Lite (gemini-2.5-flash-lite)": "gemini-2.5-flash-lite",
+                    "Gemini 2.0 Flash Lite (gemini-2.0-flash-lite)": "gemini-2.0-flash-lite"
                 }
                 gemini_model_options = list(gemini_model_api_map.keys())
                 default_idx = 0
 
             gemini_model_selected = st.selectbox(
-                "Gemini 모델 선택",
+                "Gemini 모델 선택 (Lite 전용)",
                 gemini_model_options,
                 index=default_idx,
-                help="Google AI Studio API에서 제공하는 텍스트 생성 Gemini 모델 목록입니다."
+                help="Google AI Studio API에서 제공하는 초고속 Gemini Lite 모델 목록입니다."
             )
-            model_name = gemini_model_api_map.get(gemini_model_selected, "gemini-2.5-flash")
+            model_name = gemini_model_api_map.get(gemini_model_selected, "gemini-3.5-flash-lite")
 
             if st.button("API Key 삭제", key="btn_del_key_Gemini", help="입력한 Gemini API Key만 즉시 삭제하고 초기화합니다.", use_container_width=True):
                 st.session_state['api_key_store']["Gemini"] = ""
