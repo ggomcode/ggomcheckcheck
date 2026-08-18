@@ -448,8 +448,14 @@ def call_llm_api_for_audit(provider: str, api_key: str, model_name: str, records
     if not api_key:
         raise ValueError("API Key가 설정되지 않았습니다. 사이드바에서 AI API Key를 입력해 주세요.")
 
-    BATCH_SIZE = 15
-    batches = [records_data[i:i + BATCH_SIZE] for i in range(0, len(records_data), BATCH_SIZE)]
+    # 학생(학번+이름) 단위로 그룹화하여 학생 1명당 1개 배치로 정밀 분석
+    from collections import defaultdict
+    student_grouped = defaultdict(list)
+    for r in records_data:
+        st_key = (safe_str(r.get("학번", "")), safe_str(r.get("이름", "")))
+        student_grouped[st_key].append(r)
+
+    batches = list(student_grouped.values()) if student_grouped else [records_data]
     total_batches = len(batches)
     
     all_results = []
@@ -2628,12 +2634,19 @@ def main():
             provider = st.selectbox("AI 프로바이더 선택", ["Gemini", "OpenAI", "Claude"])
             
             if provider == "Gemini":
-                gemini_model = st.selectbox(
-                    "Gemini 모델 선택 (무료티어 추천)",
-                    ["gemini-flash-lite-latest", "gemini-pro-latest", "gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
-                    help="gemini-flash-lite-latest(빠른 검수 디폴트) 및 gemini-pro-latest(최고성능 Pro 모델) 중 선택하실 수 있습니다."
+                gemini_model_options = ["Gemini Pro Latest", "Gemini Flash Latest", "Gemini Flash-Lite Latest"]
+                gemini_model_selected = st.selectbox(
+                    "Gemini 모델 선택",
+                    gemini_model_options,
+                    index=0,
+                    help="Gemini Pro Latest(심층 정밀 검증 디폴트), Gemini Flash Latest(빠른 검수), Gemini Flash-Lite Latest(경량/초고속) 중 선택하실 수 있습니다."
                 )
-                model_name = gemini_model
+                gemini_model_api_map = {
+                    "Gemini Pro Latest": "gemini-pro-latest",
+                    "Gemini Flash Latest": "gemini-flash-latest",
+                    "Gemini Flash-Lite Latest": "gemini-flash-lite-latest"
+                }
+                model_name = gemini_model_api_map.get(gemini_model_selected, "gemini-pro-latest")
             elif provider == "OpenAI":
                 model_name = "gpt-4o-mini"
             else:
