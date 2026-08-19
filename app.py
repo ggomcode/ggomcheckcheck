@@ -1113,26 +1113,27 @@ def is_meaningful_concatenation(base_token: str, append_token: str) -> bool:
     return False
 
 
-HEADER_KEYWORDS = {
+# 순수 표 헤더 라벨 집합 (학생의 실제 활동명인 자율활동, 동아리활동, 진로활동, 희망분야 등은 제외)
+PURE_HEADER_LABELS = {
     '번호', '성명', '이름', '학생명', '순번', 'no', 'num', 'id', '학번',
     '학년', '학 년', '영역', '활동영역', '시간', '시 간', '이수시간', '이수 시간',
-    '특기사항', '특기 사항', '창의적체험활동', '창의적 체험활동', '창의적체험활동상황',
-    '창의적 체험활동상황', '창체', '창의적 체험활동 영역별 특기사항', '영역별특기사항',
-    '영역별 특기사항', '세부능력 및 특기사항', '세부능력및특기사항', '세부능력',
+    '특기사항', '특기 사항', '특기사항(과목명)', '창의적체험활동', '창의적 체험활동',
+    '창의적체험활동상황', '창의적 체험활동상황', '창체', '창의적 체험활동 영역별 특기사항',
+    '영역별특기사항', '영역별 특기사항', '세부능력 및 특기사항', '세부능력및특기사항', '세부능력',
     '행동특성 및 종합의견', '행동특성및종합의견', '행동특성', '종합의견', '기록내용', '기록 내용',
     '내용', '과목', '과목명', '교과', '원점수/과목평균', '성취도(수강자수)', '석차등급',
-    '구분', '세부', '희망분야', '희망사항', '희망 분야', '희망 사항', '특기사항(과목명)'
+    '구분', '세부'
 }
 
-HEADER_CLEANED_SET = {re.sub(r'[\s\(\)\[\]·ㆍ/]', '', k).lower() for k in HEADER_KEYWORDS}
+PURE_HEADER_CLEANED_SET = {re.sub(r'[\s\(\)\[\]·ㆍ/]', '', k).lower() for k in PURE_HEADER_LABELS}
 
 
 def is_header_text_only(text: str) -> bool:
-    """텍스트 자체가 헤더 키워드(특기사항, 영역별 특기사항 등)인지 판별합니다."""
+    """텍스트 자체가 순수 헤더 키워드 라벨('특기사항', '창의적체험활동' 등)인지 판별합니다."""
     if not text:
         return False
     cleaned = re.sub(r'[\s\(\)\[\]·ㆍ/:：\-]', '', text).lower()
-    return cleaned in HEADER_CLEANED_SET
+    return cleaned in PURE_HEADER_CLEANED_SET
 
 
 def smart_concatenate_text(base_text: str, append_text: str) -> str:
@@ -1189,7 +1190,8 @@ def smart_concatenate_text(base_text: str, append_text: str) -> str:
 def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool:
     """
     NEIS 페이지 꼬리말(페이지번호/학교명), 페이지 상단 제목(학년 반/사용자명/출력일자),
-    표 헤더 행(번호, 성명, 학년, 영역, 시간, 특기사항 등)을 100% 정밀 감지하여 제외합니다.
+    표 헤더 행(1단 헤더: 번호/성명/창의적체험활동, 2단 헤더: 영역/시간/특기사항)을 정밀 감지하여 제외합니다.
+    (학생의 실제 자율/동아리/진로활동 행 및 희망사항 행은 절대 제외하지 않습니다)
     """
     vals = [safe_str(v).strip() for v in row_dict.values() if safe_notna(v) and safe_str(v).strip() not in ['', 'nan', 'NaN', 'None']]
     if not vals:
@@ -1211,32 +1213,24 @@ def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool
     # 2. 페이지 상단 제목 및 메타데이터 행
     if '학교생활기록부' in vals_compact:
         return True
-    if re.search(r'^\d+\s*학년\s*\d+\s*반', vals_compact) or re.search(r'^\d+\s*학년\s*$', vals_compact):
+    if re.search(r'^\d+\s*학년\s*\d+\s*반', vals_compact):
         return True
     if any(k in vals_compact for k in ['사용자명:', '사용자명：', '출력일자:', '출력일자：', '조회일자:', '페이지:']):
         return True
     if re.match(r'^\d{4}[\.\-/]\s*\d{1,2}[\.\-/]\s*\d{1,2}\.?$', vals_compact):
         return True
 
-    # 3. 표 헤더 (컬럼명) 감지
+    # 3. 표 헤더 1행 감지 (번호/성명 열에 '번호', '성명' 등이 명시된 행)
     num_val_str = safe_str(row_dict.get(num_col, '')).replace(" ", "") if num_col else ""
     name_val_str = safe_str(row_dict.get(name_col, '')).replace(" ", "") if name_col else ""
 
     if any(k in num_val_str for k in ['번호', '순번', 'no', 'num', 'id', '학번']) or any(k in name_val_str for k in ['성명', '이름', '학생명', '성 명']):
         return True
 
-    # 행에 있는 모든 텍스트가 헤더 키워드 집합에 포함되는 경우 (예: ['영역', '시간', '특기사항'], ['창의적체험활동'])
+    # 4. 표 헤더 2단 행 감지 (행에 존재하는 모든 셀 값이 순수 헤더 라벨(영역, 시간, 특기사항 등)에만 속하는 경우)
     clean_vals = [re.sub(r'[\s\(\)\[\]·ㆍ/]', '', v).lower() for v in vals]
-    if all(cv in HEADER_CLEANED_SET for cv in clean_vals):
+    if all(cv in PURE_HEADER_CLEANED_SET for cv in clean_vals):
         return True
-
-    # 행 전체 길이가 짧으면서 헤더 관련 핵심 단어가 들어있는 경우 (서술문이 아닌 헤더 행)
-    if len(vals_compact) < 60:
-        if any(hk in vals_compact for hk in ['특기사항', '창의적체험활동', '세부능력', '행동특성', '영역별', '이수시간', '원점수', '수강자수', '희망분야', '활동영역']):
-            # 실제 학생 번호(숫자)와 학생 이름이 둘 다 명확하지 않은 경우
-            is_num_cell = bool(num_val_str and re.match(r'^\d+$', num_val_str))
-            if not is_num_cell:
-                return True
 
     return False
 
@@ -1612,9 +1606,6 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             target_num = num_str if num_str else active_num
             target_name = name_str if name_str else active_name
 
-            if not target_num or not target_name or not content_val:
-                continue
-
             eff_grade = grade_val if (grade_val and grade_val.lower() != 'none') else (active_grade if active_grade else "1")
             eff_grade_clean = eff_grade.replace("학년", "").replace(".0", "").strip()
 
@@ -1651,7 +1642,7 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
                 # 희망분야 헤더 행은 서술문이 아니므로 원문 텍스트 추출에서는 제외
                 continue
 
-            if not content_val:
+            if not target_num or not target_name or not content_val:
                 continue
 
             curr_num = current_student_record[num_col] if current_student_record else None
