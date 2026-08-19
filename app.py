@@ -1113,6 +1113,28 @@ def is_meaningful_concatenation(base_token: str, append_token: str) -> bool:
     return False
 
 
+HEADER_KEYWORDS = {
+    '번호', '성명', '이름', '학생명', '순번', 'no', 'num', 'id', '학번',
+    '학년', '학 년', '영역', '활동영역', '시간', '시 간', '이수시간', '이수 시간',
+    '특기사항', '특기 사항', '창의적체험활동', '창의적 체험활동', '창의적체험활동상황',
+    '창의적 체험활동상황', '창체', '창의적 체험활동 영역별 특기사항', '영역별특기사항',
+    '영역별 특기사항', '세부능력 및 특기사항', '세부능력및특기사항', '세부능력',
+    '행동특성 및 종합의견', '행동특성및종합의견', '행동특성', '종합의견', '기록내용', '기록 내용',
+    '내용', '과목', '과목명', '교과', '원점수/과목평균', '성취도(수강자수)', '석차등급',
+    '구분', '세부', '희망분야', '희망사항', '희망 분야', '희망 사항', '특기사항(과목명)'
+}
+
+HEADER_CLEANED_SET = {re.sub(r'[\s\(\)\[\]·ㆍ/]', '', k).lower() for k in HEADER_KEYWORDS}
+
+
+def is_header_text_only(text: str) -> bool:
+    """텍스트 자체가 헤더 키워드(특기사항, 영역별 특기사항 등)인지 판별합니다."""
+    if not text:
+        return False
+    cleaned = re.sub(r'[\s\(\)\[\]·ㆍ/:：\-]', '', text).lower()
+    return cleaned in HEADER_CLEANED_SET
+
+
 def smart_concatenate_text(base_text: str, append_text: str) -> str:
     base_clean = base_text.strip()
     append_clean = append_text.strip()
@@ -1120,6 +1142,10 @@ def smart_concatenate_text(base_text: str, append_text: str) -> str:
     if not base_clean:
         return append_clean
     if not append_clean:
+        return base_clean
+
+    # 0. 헤더 단어('특기사항', '창의적체험활동' 등)가 덧붙여지려는 경우 무시
+    if is_header_text_only(append_clean):
         return base_clean
 
     last_char = base_clean[-1]
@@ -1161,32 +1187,56 @@ def smart_concatenate_text(base_text: str, append_text: str) -> str:
 # 4. 동적 컬럼 자동 매핑 및 가비지 컬럼 제거 헬퍼
 # ==============================================================================
 def is_header_or_footer_row(row_dict: dict, num_col=None, name_col=None) -> bool:
-    vals = [safe_str(v) for v in row_dict.values() if safe_notna(v)]
-    combined = "".join(vals).replace(" ", "")
+    """
+    NEIS 페이지 꼬리말(페이지번호/학교명), 페이지 상단 제목(학년 반/사용자명/출력일자),
+    표 헤더 행(번호, 성명, 학년, 영역, 시간, 특기사항 등)을 100% 정밀 감지하여 제외합니다.
+    """
+    vals = [safe_str(v).strip() for v in row_dict.values() if safe_notna(v) and safe_str(v).strip() not in ['', 'nan', 'NaN', 'None']]
+    if not vals:
+        return True
 
+    vals_str = ' '.join(vals)
+    vals_compact = "".join(vals).replace(" ", "")
+
+    # 섹션 헤더 (예: <진로 선택 과목>, <체육ㆍ예술>)
+    if re.search(r'<[가-힣\sㆍ·/]+>', vals_compact):
+        return True
+
+    # 1. 꼬리말 / 푸터 행 (예: 5.0 / 309.0 포곡고등학교, 1 / 30, 2026.08.16.)
+    if re.search(r'\b\d+\.?\d*\s*/\s*\d+\.?\d*\b', vals_str) or re.match(r'^\d+/\d+$', vals_compact):
+        return True
+    if any(k in vals_compact for k in ['고등학교', '중학교', '초등학교']) and ('/' in vals_compact or any(re.match(r'^\d+(\.0)?$', v) for v in vals)):
+        return True
+
+    # 2. 페이지 상단 제목 및 메타데이터 행
+    if '학교생활기록부' in vals_compact:
+        return True
+    if re.search(r'^\d+\s*학년\s*\d+\s*반', vals_compact) or re.search(r'^\d+\s*학년\s*$', vals_compact):
+        return True
+    if any(k in vals_compact for k in ['사용자명:', '사용자명：', '출력일자:', '출력일자：', '조회일자:', '페이지:']):
+        return True
+    if re.match(r'^\d{4}[\.\-/]\s*\d{1,2}[\.\-/]\s*\d{1,2}\.?$', vals_compact):
+        return True
+
+    # 3. 표 헤더 (컬럼명) 감지
     num_val_str = safe_str(row_dict.get(num_col, '')).replace(" ", "") if num_col else ""
     name_val_str = safe_str(row_dict.get(name_col, '')).replace(" ", "") if name_col else ""
 
-    if re.search(r'<[가-힣\sㆍ·/]+>', num_val_str):
+    if any(k in num_val_str for k in ['번호', '순번', 'no', 'num', 'id', '학번']) or any(k in name_val_str for k in ['성명', '이름', '학생명', '성 명']):
         return True
 
-    if '번호' in num_val_str or '성명' in name_val_str or '번 호' in num_val_str or '성 명' in name_val_str:
+    # 행에 있는 모든 텍스트가 헤더 키워드 집합에 포함되는 경우 (예: ['영역', '시간', '특기사항'], ['창의적체험활동'])
+    clean_vals = [re.sub(r'[\s\(\)\[\]·ㆍ/]', '', v).lower() for v in vals]
+    if all(cv in HEADER_CLEANED_SET for cv in clean_vals):
         return True
 
-    if len(combined) < 40 and ('영역' in combined or '창의적체험활동' in combined or '세부능력' in combined or '행동특성' in combined):
-        if '시간' in combined or '특기사항' in combined or '상황' in combined or '의견' in combined:
-            return True
-
-    # NEIS 엑셀 페이지 꼬리말 구조 정밀 검사: '/' 셀이 있고 페이지 숫자 및 학교명이 존재하는 행
-    if '/' in vals and (any('고등학교' in v or '학교' in v for v in vals) or any(re.match(r'^\d+\.?\d*$', v) for v in vals)):
-        return True
-
-    if len(combined) < 50 and ('학교' in combined or '사용자명' in combined or '페이지' in combined):
-        if any(re.search(r'^\d+$', v.strip()) for v in vals) or '/' in combined:
-            return True
-
-    if len(combined) < 40 and re.search(r'^\s*\d+/\d+\.?\d*\s*$', combined):
-        return True
+    # 행 전체 길이가 짧으면서 헤더 관련 핵심 단어가 들어있는 경우 (서술문이 아닌 헤더 행)
+    if len(vals_compact) < 60:
+        if any(hk in vals_compact for hk in ['특기사항', '창의적체험활동', '세부능력', '행동특성', '영역별', '이수시간', '원점수', '수강자수', '희망분야', '활동영역']):
+            # 실제 학생 번호(숫자)와 학생 이름이 둘 다 명확하지 않은 경우
+            is_num_cell = bool(num_val_str and re.match(r'^\d+$', num_val_str))
+            if not is_num_cell:
+                return True
 
     return False
 
@@ -1462,29 +1512,6 @@ def detect_actual_record_type(filename: str, df_raw: pd.DataFrame) -> str:
     return "세특"
 
 
-def is_header_or_footer_row(row_dict: dict, num_col: str, name_col: str) -> bool:
-    """
-    NEIS 페이지 꼬리말(페이지번호/학교명), 페이지 상단 제목(학년 반), 표 헤더 행을 감지합니다.
-    """
-    vals = [safe_str(v) for v in row_dict.values() if safe_notna(v)]
-    vals_str = ' '.join(vals)
-    if not vals_str.strip():
-        return True
-    # 꼬리말 (예: 5.0 / 309.0 포곡고등학교)
-    if re.search(r'\d+\s*/\s*\d+', vals_str) or '포곡고등학교' in vals_str or '고등학교' in vals_str:
-        return True
-    # 페이지 상단 학년반 제목 (예: 3학년 2반)
-    if re.search(r'^\d+\s*학년\s*\d+\s*반', vals_str.strip()):
-        return True
-    # 표 헤더 (예: 번 호, 성  명, 학 년)
-    if '번 호' in vals_str or '성  명' in vals_str or '성 명' in vals_str or '세부능력 및 특기사항' in vals_str:
-        num_v = safe_str(row_dict.get(num_col, ''))
-        name_v = safe_str(row_dict.get(name_col, ''))
-        if num_v in ['번 호', '번호'] or name_v in ['성  명', '성명', '이름']:
-            return True
-    return False
-
-
 # ==============================================================================
 # 5. 지능형 페이지 파싱 엔진 (Core Refinement Engine)
 # ==============================================================================
@@ -1536,15 +1563,21 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
             num_val = safe_val(row[num_col]) if num_col and num_col in row else None
             name_val = safe_val(row[name_col]) if name_col and name_col in row else None
             content_val = clean_text_content(safe_val(row[content_col])) if content_col and content_col in row else ""
+            if is_header_text_only(content_val):
+                content_val = ""
+
             if not content_val or len(content_val) < 10:
                 alt_texts = []
                 for c in row.index:
                     if c not in [num_col, name_col, grade_col, '시간', '시 간', '이수시간']:
                         v_str = clean_text_content(safe_val(row[c]))
-                        if len(v_str) > 15 and v_str.lower() not in ['nan', 'none']:
+                        if len(v_str) > 15 and v_str.lower() not in ['nan', 'none'] and not is_header_text_only(v_str):
                             alt_texts.append(v_str)
                 if alt_texts:
                     content_val = '\n\n'.join(alt_texts)
+
+            if is_header_text_only(content_val):
+                continue
 
             area_val = safe_str(row[area_col]) if area_col and area_col in row else ""
             grade_val = safe_str(row[grade_col]).replace(".0", "") if grade_col and grade_col in row else ""
@@ -1721,6 +1754,9 @@ def refine_student_records(df: pd.DataFrame, col_map: dict) -> tuple:
         
         last_text = str(last_r[content_col]).strip()
         curr_text = str(r[content_col]).strip()
+        
+        if is_header_text_only(curr_text):
+            continue
         
         is_new_header = bool(re.match(
             r'^(?:(?:\([12]학기\))?\s*[가-힣a-zA-Z0-9\s·/Ⅰ-Ⅻ()\-_]{1,20}\s*[:：]|\([가-힣a-zA-Z0-9\s·/]+\)\s*\(\d+시간\))',
